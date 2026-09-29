@@ -66,6 +66,12 @@ type cliFlags struct {
 	protoFuzz     *bool
 	raceProbe     *bool
 	exhaust       *bool
+	rugPull       *bool
+	tokenLeak     *bool
+	sampling      *bool
+	sideChannel   *bool
+	resTraversal  *bool
+	promptAudit   *bool
 }
 
 func parseConfig() (app.Config, bool) {
@@ -108,6 +114,12 @@ Flags:
   -protofuzz                 Send malformed JSON-RPC messages and detect crashes
   -race-probe                Send identical concurrent tool calls
   -exhaust                   Measure latency degradation under a bounded request burst
+  -rugpull                   Detect tool description changes across sessions
+  -tokenleak                 Scan tool responses and errors for leaked credentials
+  -sampling                  Detect if server accepts sampling/createMessage
+  -side-channel              Detect blind injection via timing, size and error side-channels
+  -restraverse               Probe resources/read with traversal payloads
+  -prompt-audit              Audit prompt templates for hidden instructions and exfiltration
   -version                   Print version and exit
 `)
 	}
@@ -141,6 +153,12 @@ func declareFlags() cliFlags {
 		protoFuzz:     flag.Bool("protofuzz", false, "Send malformed JSON-RPC messages and detect crashes"),
 		raceProbe:     flag.Bool("race-probe", false, "Send identical concurrent tool calls"),
 		exhaust:       flag.Bool("exhaust", false, "Measure latency degradation under a bounded request burst"),
+		rugPull:       flag.Bool("rugpull", false, "Detect tool description changes across sessions"),
+		tokenLeak:     flag.Bool("tokenleak", false, "Scan tool responses and errors for leaked credentials"),
+		sampling:      flag.Bool("sampling", false, "Detect if server accepts sampling/createMessage"),
+		sideChannel:   flag.Bool("side-channel", false, "Detect blind injection via timing, size and error side-channels"),
+		resTraversal:  flag.Bool("restraverse", false, "Probe resources/read with traversal payloads"),
+		promptAudit:   flag.Bool("prompt-audit", false, "Audit prompt templates for hidden instructions and exfiltration"),
 	}
 	flag.Parse()
 	return flags
@@ -174,6 +192,12 @@ func (f cliFlags) buildConfig() app.Config {
 		ProtoFuzz:     *f.protoFuzz,
 		RaceProbe:     *f.raceProbe,
 		Exhaust:       *f.exhaust,
+		RugPull:       *f.rugPull,
+		TokenLeak:     *f.tokenLeak,
+		Sampling:      *f.sampling,
+		SideChannel:   *f.sideChannel,
+		ResTraversal:  *f.resTraversal,
+		PromptAudit:   *f.promptAudit,
 	}
 }
 

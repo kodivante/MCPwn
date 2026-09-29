@@ -81,7 +81,11 @@ func splitFindings(findings []auditor.Finding) ([]auditor.Finding, []auditor.Fin
 }
 
 func isAdvancedRule(ruleID string) bool {
-	advancedPrefixes := []string{"StateDesync", "ProtocolRobustness", "RaceCondition", "ResourceExhaustion"}
+	advancedPrefixes := []string{
+		"StateDesync", "ProtocolRobustness", "RaceCondition", "ResourceExhaustion",
+		"ToolRugPull", "TokenLeak", "SamplingAbuse", "SideChannel",
+		"ResourceTraversal", "PromptPoisoning", "AttackChain",
+	}
 	for _, prefix := range advancedPrefixes {
 		if strings.HasPrefix(ruleID, prefix) {
 			return true

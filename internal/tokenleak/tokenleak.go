@@ -7,11 +7,10 @@ import (
 	"time"
 
 	"github.com/kodivante/MCPwn/v3/internal/auditor"
+	"github.com/kodivante/MCPwn/v3/internal/schema"
 )
 
 const defaultTimeout = 10 * time.Second
-
-const credentialPattern = "sk-"
 
 type ToolCaller interface {
 	CallTool(name string, arguments json.RawMessage) (json.RawMessage, error)
@@ -23,36 +22,32 @@ type Options struct {
 
 type Engine struct {
 	caller  ToolCaller
+	tools   []schema.Tool
 	timeout time.Duration
 }
 
-func NewEngine(caller ToolCaller, options Options) *Engine {
+func NewEngine(caller ToolCaller, tools []schema.Tool, options Options) *Engine {
 	timeout := options.Timeout
 	if timeout <= 0 {
 		timeout = defaultTimeout
 	}
-	return &Engine{caller: caller, timeout: timeout}
+	return &Engine{caller: caller, tools: tools, timeout: timeout}
 }
 
-func (e *Engine) ProbeTools(tools []toolInfo) []auditor.Finding {
+func (e *Engine) ProbeTools() []auditor.Finding {
 	var findings []auditor.Finding
-	for _, tool := range tools {
+	for _, tool := range e.tools {
 		findings = append(findings, e.probeTool(tool)...)
 	}
 	return findings
 }
 
-type toolInfo struct {
-	Name string
-	Args map[string]string
-}
-
-func (e *Engine) probeTool(tool toolInfo) []auditor.Finding {
-	arguments, err := json.Marshal(tool.Args)
+func (e *Engine) probeTool(tool schema.Tool) []auditor.Finding {
+	arguments, err := buildArguments(tool.InputSchema)
 	if err != nil {
 		return nil
 	}
-	raw, err := e.caller.CallTool(tool.Name, arguments)
+	raw, err := e.callWithTimeout(tool.Name, arguments)
 	if err != nil {
 		if finding, ok := errorLeak(err.Error(), tool.Name); ok {
 			return []auditor.Finding{finding}
@@ -63,6 +58,43 @@ func (e *Engine) probeTool(tool toolInfo) []auditor.Finding {
 		return []auditor.Finding{finding}
 	}
 	return nil
+}
+
+func buildArguments(root schema.JSONSchema) (json.RawMessage, error) {
+	if len(root.Properties) == 0 {
+		return json.Marshal(map[string]string{})
+	}
+	values := make(map[string]json.RawMessage, len(root.Properties))
+	for key, prop := range root.Properties {
+		if required(root, key) {
+			values[key] = benignValue(prop)
+		}
+	}
+	return json.Marshal(values)
+}
+
+func required(root schema.JSONSchema, key string) bool {
+	for _, name := range root.Required {
+		if name == key {
+			return true
+		}
+	}
+	return false
+}
+
+func benignValue(prop schema.JSONSchema) json.RawMessage {
+	switch prop.Type {
+	case "number", "integer":
+		return json.RawMessage("1")
+	case "boolean":
+		return json.RawMessage("false")
+	case "array":
+		return json.RawMessage("[]")
+	case "object":
+		return json.RawMessage("{}")
+	default:
+		return json.RawMessage(`"mcpwnProbeValue"`)
+	}
 }
 
 func errorLeak(errorText, toolName string) (auditor.Finding, bool) {
@@ -92,8 +124,7 @@ var leakMarkers = []string{
 	"authorization:",
 	"aws_access_key", "aws_secret",
 	"private_key", "-----begin",
-	"ghp_", "ghp",
-	"credential",
+	"ghp_", "credential",
 	"session_id",
 	"jwt ",
 	"basic ",

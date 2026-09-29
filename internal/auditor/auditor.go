@@ -22,6 +22,17 @@ type Finding struct {
 	Remediation string   `json:"Remediation"`
 	Confirmed   bool     `json:"Confirmed,omitempty"`
 	Evidence    string   `json:"Evidence,omitempty"`
+	Confidence  int      `json:"Confidence,omitempty"`
+}
+
+func (f *Finding) SetConfidence(confidence int) {
+	if confidence < 0 {
+		confidence = 0
+	}
+	if confidence > 100 {
+		confidence = 100
+	}
+	f.Confidence = confidence
 }
 
 type Engine struct {

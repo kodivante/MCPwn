@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/kodivante/MCPwn/v3/internal/auditor"
+	"github.com/kodivante/MCPwn/v3/internal/schema"
 )
 
 type stubCaller struct {
@@ -42,20 +43,29 @@ func (secretError) Error() string {
 
 func errWithSecret() error { return secretError{} }
 
-func demoTool() toolInfo {
-	return toolInfo{Name: "runQuery", Args: map[string]string{"query": "SELECT 1"}}
+func demoTool() schema.Tool {
+	return schema.Tool{
+		Name: "runQuery",
+		InputSchema: schema.JSONSchema{
+			Type: "object",
+			Properties: map[string]schema.JSONSchema{
+				"query": {Type: "string"},
+			},
+			Required: []string{"query"},
+		},
+	}
 }
 
 func TestProbeToolsCleanServer(t *testing.T) {
-	engine := NewEngine(cleanCaller(), Options{})
-	if findings := engine.ProbeTools([]toolInfo{demoTool()}); len(findings) != 0 {
+	engine := NewEngine(cleanCaller(), []schema.Tool{demoTool()}, Options{})
+	if findings := engine.ProbeTools(); len(findings) != 0 {
 		t.Errorf("expected 0 findings against clean server, got %d: %+v", len(findings), findings)
 	}
 }
 
 func TestProbeToolsLeakingServer(t *testing.T) {
-	engine := NewEngine(leakingCaller(), Options{})
-	findings := engine.ProbeTools([]toolInfo{demoTool()})
+	engine := NewEngine(leakingCaller(), []schema.Tool{demoTool()}, Options{})
+	findings := engine.ProbeTools()
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 token leak finding, got %d: %+v", len(findings), findings)
 	}
@@ -74,13 +84,43 @@ func TestProbeToolsLeakingServer(t *testing.T) {
 }
 
 func TestProbeToolsErrorLeak(t *testing.T) {
-	engine := NewEngine(errorLeakingCaller(), Options{})
-	findings := engine.ProbeTools([]toolInfo{demoTool()})
+	engine := NewEngine(errorLeakingCaller(), []schema.Tool{demoTool()}, Options{})
+	findings := engine.ProbeTools()
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 error leak finding, got %d", len(findings))
 	}
 	if !strings.Contains(findings[0].Evidence, "password") {
 		t.Errorf("expected password marker in evidence, got %s", findings[0].Evidence)
+	}
+}
+
+func TestBuildArgumentsRequiredOnly(t *testing.T) {
+	tool := schema.Tool{
+		Name: "multiField",
+		InputSchema: schema.JSONSchema{
+			Type: "object",
+			Properties: map[string]schema.JSONSchema{
+				"query":    {Type: "string"},
+				"optional": {Type: "string"},
+				"count":    {Type: "integer"},
+				"flag":     {Type: "boolean"},
+			},
+			Required: []string{"query"},
+		},
+	}
+	raw, err := buildArguments(tool.InputSchema)
+	if err != nil {
+		t.Fatalf("buildArguments failed: %v", err)
+	}
+	var values map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &values); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if _, present := values["optional"]; present {
+		t.Error("optional fields must not be sent")
+	}
+	if _, present := values["query"]; !present {
+		t.Error("required field must be sent")
 	}
 }
 

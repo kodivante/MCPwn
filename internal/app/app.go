@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/kodivante/MCPwn/v3/internal/attackchain"
 	"github.com/kodivante/MCPwn/v3/internal/auditor"
 	"github.com/kodivante/MCPwn/v3/internal/client"
 	"github.com/kodivante/MCPwn/v3/internal/promptinject"
@@ -37,6 +38,12 @@ type Config struct {
 	ProtoFuzz     bool
 	RaceProbe     bool
 	Exhaust       bool
+	RugPull       bool
+	TokenLeak     bool
+	Sampling      bool
+	SideChannel   bool
+	ResTraversal  bool
+	PromptAudit   bool
 }
 
 type transportFactory func(ctx context.Context, cfg Config) (client.Transport, error)
@@ -86,6 +93,8 @@ func processFindings(ctx context.Context, connectFactory transportFactory, sessi
 		findings = append(findings, promptEngine.ProbeTools(tools)...)
 	}
 	findings = runDeepProbes(ctx, connectFactory, session, tools, findings, cfg)
+	applyConfidence(findings)
+	findings = attackchain.NewDetector().Analyze(findings)
 	if err := render(findings, cfg); err != nil {
 		return 1, err
 	}

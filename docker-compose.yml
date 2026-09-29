@@ -1,0 +1,10 @@
+services:
+  mcpwn:
+    build: .
+    image: kodivante/mcpwn:latest
+    user: "10001"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL

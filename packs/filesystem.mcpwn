@@ -1,0 +1,23 @@
+# MCPwn community pack: filesystem abuse probes
+# Safe by design: only touches scanner-created temp files.
+
+payload "echoFilesystem" {
+  rule = CmdInjection01
+  template = echo {uuid}
+  expect = {uuid}
+  description = Confirms command execution with a unique benign marker
+}
+
+payload "readTempFile" {
+  rule = PathTraversal01
+  template = cat {tempfile}
+  expect = {uuid}
+  description = Confirms arbitrary file read against a fuzzer-created temp file
+}
+
+payload "listTempDir" {
+  rule = CmdInjection01
+  template = ls /tmp/mcpwnprobe
+  expect = mcpwn
+  description = Confirms command execution listing a scanner temp directory
+}

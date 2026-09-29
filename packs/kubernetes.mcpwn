@@ -1,0 +1,23 @@
+# MCPwn community pack: kubernetes and CI abuse probes
+# Safe by design: read-only introspection commands only.
+
+payload "kubectlVersion" {
+  rule = CmdInjection01
+  template = kubectl version --client
+  expect = Version
+  description = Confirms command execution via kubectl client version
+}
+
+payload "listNamespaces" {
+  rule = CmdInjection01
+  template = kubectl get namespaces
+  expect = NAME
+  description = Confirms command execution enumerating cluster namespaces
+}
+
+payload "envDump" {
+  rule = CredentialsLeak01
+  template = printenv
+  expect = PATH
+  description = Detects environment variable exposure through tool output
+}

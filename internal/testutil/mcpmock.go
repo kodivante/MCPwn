@@ -107,7 +107,10 @@ func handleMockRequest(conn net.Conn, req mockRequest, toolsPayload string, refl
 	case "error":
 		return writeMessage(conn, mockResponse{JSONRPC: "2.0", ID: req.ID, Error: &mockError{Code: -32601, Message: "method not found"}})
 	}
-	return nil
+	if req.ID == nil {
+		return nil
+	}
+	return writeMessage(conn, mockResponse{JSONRPC: "2.0", ID: req.ID, Error: &mockError{Code: -32601, Message: "method not found"}})
 }
 
 func reflectCallResult(params json.RawMessage) string {

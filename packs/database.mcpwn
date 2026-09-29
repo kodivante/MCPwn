@@ -1,0 +1,23 @@
+# MCPwn community pack: database injection probes
+# Safe by design: payloads are read-only queries with markers.
+
+payload "sqliteVersion" {
+  rule = SqlInjection01
+  template = SELECT sqlite_version() AS mcpwn
+  expect = 3
+  description = Confirms SQL injection via sqlite version marker query
+}
+
+payload "benignUnion" {
+  rule = SqlInjection01
+  template = SELECT 1 AS mcpwn UNION SELECT 2
+  expect = mcpwn
+  description = Confirms SQL injection with a read-only UNION probe
+}
+
+payload "commentBreak" {
+  rule = SqlInjection01
+  template = 1 OR 1=1 --
+  expect = result
+  description = Confirms SQL comment injection with an always-true condition
+}

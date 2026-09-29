@@ -24,9 +24,11 @@ That night, the first version of MCPwn was written. It grew into a full suite: t
 
 ## Key Features
 
-- **Protocol-native discovery**: full MCP handshake (`initialize`/`initialized`) over stdio or SSE, including `tools/call`.
+- **Protocol-native discovery**: full MCP handshake (`initialize`/`initialized`) over stdio or SSE, including `tools/call`, `resources/list`, `resources/read`, `prompts/list` and `prompts/get`.
 - **13 static security rules**: command injection, path traversal, SSRF, credential leaks, SQL injection, denial of service, state mutation, tool poisoning, IDOR, mass assignment, weak typing, missing required fields, and prompt injection sinks.
-- **Deep dynamic testing suite** (`-deep`): seven additional engines — path traversal prober, SSRF canary, schema pollution probe, lifecycle desync, protocol fuzzer, race prober and exhaustion probe.
+- **Deep dynamic testing suite** (`-deep`): fifteen engines — path traversal prober, SSRF canary, schema pollution probe, lifecycle desync, protocol fuzzer, race prober, exhaustion probe, tool rug-pull detector, token leak scanner, sampling abuse probe, side-channel detector, resource traversal prober and prompt template auditor.
+- **Attack-chain analysis**: always-on post-analysis that links findings into exploitation paths (RCE + credential leak, SSRF + token leak, prompt injection + SSRF) and reports the full chain with evidence.
+- **Per-finding confidence**: every finding carries a 0-100 `Confidence` score — confirmed-with-evidence findings score 95, static detections 70 — enabling near-zero false positive CI gates.
 - **Dynamic fuzzing engine**: confirms command injection findings by sending benign payloads (echo with a unique marker, controlled sleep, self-deleting temp file) with a strict hardcoded deny-list.
 - **Prompt injection simulator**: sends three fixed benign payloads and classifies full or partial reflection of user input.
 - **Security score**: every audit collapses into a grade from A (clean) to F (critical).
@@ -117,6 +119,12 @@ mcpwn -transport=stdio -command=python3 -args=test/fixtures/mockServerDemo.py -d
 | `-protofuzz` | `false` | Send malformed JSON-RPC messages and detect crashes |
 | `-race-probe` | `false` | Send identical concurrent tool calls |
 | `-exhaust` | `false` | Measure latency degradation under a bounded request burst |
+| `-rugpull` | `false` | Detect tool description changes across sessions |
+| `-tokenleak` | `false` | Scan tool responses and errors for leaked credentials |
+| `-sampling` | `false` | Detect if server accepts sampling/createMessage |
+| `-side-channel` | `false` | Detect blind injection via timing, size and error side-channels |
+| `-restraverse` | `false` | Probe resources/read with traversal payloads |
+| `-prompt-audit` | `false` | Audit prompt templates for hidden instructions and exfiltration |
 | `-version` | — | Print version and exit |
 
 **Exit codes**: `0` when no CRITICAL or HIGH findings, `1` otherwise. Any operational error also exits `1` with a message on stderr.
@@ -169,7 +177,7 @@ Dynamic findings are rendered in a separate terminal section.
 
 ## Deep Dynamic Testing
 
-Seven additional engines, every one safe by default. `-deep` enables them all; `-quick` stops probing after the first confirmation.
+Fifteen engines, every one safe by default. `-deep` enables them all; `-quick` stops probing after the first confirmation.
 
 | Engine | Flag | Produces | How it proves |
 |---|---|---|---|
@@ -180,8 +188,44 @@ Seven additional engines, every one safe by default. `-deep` enables them all; `
 | Protocol fuzzer | `-protofuzz` | `ProtocolRobustness01` (HIGH/MEDIUM) | Six malformed JSON-RPC probes; dropped connections and dead silence are findings |
 | Race prober | `-race-probe` | `RaceCondition01` (MEDIUM) | Five identical concurrent calls on independent connections; inconsistent outcomes are findings |
 | Exhaustion probe | `-exhaust` | `ResourceExhaustion01` (LOW/MEDIUM) | A bounded twenty-request burst measuring latency degradation — never an actual denial of service |
+| Tool rug-pull detector | `-rugpull` | `ToolRugPull01` (HIGH) | Re-lists tools on a fresh session and diffs descriptions against the first listing |
+| Token leak scanner | `-tokenleak` | `TokenLeak01` (CRITICAL) | Calls every tool with schema-derived benign arguments and scans responses and errors for credentials: `sk-`, API keys, AWS keys, JWTs, bearer tokens, private keys |
+| Sampling abuse probe | `-sampling` | `SamplingAbuse01` (MEDIUM) | Sends `sampling/createMessage` on a fresh connection; acceptance means the server can invoke your LLM directly |
+| Side-channel detector | `-side-channel` | `SideChannel01/02/03` | Baselines a benign call per tool, then measures timing, error-differential and response-size deviations — blind injection without payload reflection |
+| Resource traversal prober | `-restraverse` | `ResourceTraversal01` (HIGH) | Full MCP Resources coverage: probes `resources/read` URIs with marker files outside the resource root |
+| Prompt template auditor | `-prompt-audit` | `PromptPoisoning01` (HIGH/CRITICAL) | Full MCP Prompts coverage: `prompts/list` and `prompts/get` templates scanned for role manipulation (`ignore previous instructions`) and exfiltration directives (URLs, webhooks, upload targets) |
+| Attack-chain analyzer | always on | `AttackChain01` (HIGH/CRITICAL) | Links findings into exploitation paths: RCE + credential leak becomes full host takeover; SSRF + token leak becomes lateral movement — each chain reports its links with evidence |
+| Dynamic fuzzer | `-fuzz` | Confirms `CmdInjection01` | Benign echo/sleep/temp-file payloads with a strict deny-list (`rm`, `curl`, `wget`, `nc`, `ssh`, `sudo` are hardcoded-rejected) |
+| Prompt injection simulator | `-prompt-inject` | `PromptInjection01` | Three fixed benign payloads classified as full or partial reflection |
+
+Every confirmed finding carries a `Confidence` score (0-100): confirmed with evidence scores 95, static detections 70, behavioral side-channel detections 55. Machine-readable in JSON and SARIF for CI gates.
 
 Protocol-level findings are rendered in the `--- Advanced Probes ---` terminal section so they never mix with tool findings.
+
+---
+
+## Docker
+
+```bash
+docker build -t mcpwn .
+docker run --rm -v "$PWD":/audit mcpwn -transport=stdio -command=python3 -args=/audit/server.py -deep
+```
+
+The image is hardened: multi-stage build, non-root user, read-only filesystem and dropped capabilities via the included `docker-compose.yml`.
+
+---
+
+## Community Packs
+
+Ready-made `.mcpwn` payload packs live in [`packs/`](packs/):
+
+| Pack | Probes |
+|---|---|
+| `filesystem.mcpwn` | Command execution and arbitrary file read with scanner-created temp files |
+| `database.mcpwn` | Read-only SQL injection probes (sqlite version, UNION, comment break) |
+| `kubernetes.mcpwn` | kubectl client version, namespace listing, environment exposure |
+
+Use them with `-payloads=packs/kubernetes.mcpwn` or drop any `.mcpwn` file into `./mcpwn.d/` for auto-discovery.
 
 ---
 

@@ -1,0 +1,7 @@
+# Confirms command execution via a controlled response delay.
+payload "customTiming" {
+    rule = CmdInjection01
+    template = "sleep 2"
+    delay = 2s
+    description = "Confirms command execution via a controlled response delay"
+}

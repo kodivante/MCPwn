@@ -1,0 +1,7 @@
+# Confirms command execution with a custom marker.
+payload "customEcho" {
+    rule = CmdInjection01
+    template = "echo hello_{uuid}"
+    expect = "hello_{uuid}"
+    description = "Confirms command execution with a custom echo marker"
+}

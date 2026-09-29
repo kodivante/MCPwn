@@ -1,0 +1,68 @@
+name: MCPwn MCP Security Audit
+description: Audit your MCP server for security vulnerabilities / kodivante
+branding:
+  icon: shield
+  color: red
+
+inputs:
+  transport:
+    description: Transport type (stdio or sse)
+    default: stdio
+    required: false
+  command:
+    description: Command to run the MCP server (stdio transport)
+    required: false
+    default: ''
+  args:
+    description: Arguments for the command, comma-separated
+    required: false
+    default: ''
+  url:
+    description: URL for SSE transport
+    required: false
+    default: ''
+  output:
+    description: Output format (terminal, json, sarif, html, badge)
+    default: sarif
+    required: false
+  file:
+    description: Output file path
+    default: mcpwn-results.sarif
+    required: false
+  fuzz:
+    description: Enable dynamic fuzzing to confirm findings
+    default: 'false'
+    required: false
+  prompt-inject:
+    description: Enable prompt injection simulation
+    default: 'false'
+    required: false
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+    - name: Install MCPwn
+      shell: bash
+        run: go install github.com/kodivante/MCPwn/v3/cmd/mcpwn@latest
+    - name: Run MCPwn Audit
+      shell: bash
+      run: |
+        mcpwn \
+          -transport=${{ inputs.transport }} \
+          -command="${{ inputs.command }}" \
+          -args="${{ inputs.args }}" \
+          -url="${{ inputs.url }}" \
+          -output=${{ inputs.output }} \
+          -file=${{ inputs.file }} \
+          -fuzz=${{ inputs.fuzz }} \
+          -prompt-inject=${{ inputs.prompt-inject }}
+    - name: Upload SARIF to GitHub Security
+      if: inputs.output == 'sarif'
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ inputs.file }}
+      continue-on-error: true

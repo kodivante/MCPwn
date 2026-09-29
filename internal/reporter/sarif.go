@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/kodivante/MCPwn/v3/internal/auditor"
+	"github.com/kodivante/MCPwn/v3/internal/owasp"
 	"github.com/kodivante/MCPwn/v3/internal/version"
 )
 
@@ -34,9 +35,14 @@ type SARIFRule struct {
 }
 
 type SARIFResult struct {
-	RuleID  string           `json:"ruleId"`
-	Message SARIFDescription `json:"message"`
-	Level   string           `json:"level"`
+	RuleID     string           `json:"ruleId"`
+	Message    SARIFDescription `json:"message"`
+	Level      string           `json:"level"`
+	Properties SARIFProperties  `json:"properties,omitempty"`
+}
+
+type SARIFProperties struct {
+	Tags []string `json:"tags,omitempty"`
 }
 
 type SARIFDescription struct {
@@ -95,11 +101,15 @@ func mapFindingsToSARIF(findings []auditor.Finding) ([]SARIFRule, []SARIFResult)
 			message += fmt.Sprintf(" [CONFIRMED: %s]", f.Evidence)
 		}
 
-		results = append(results, SARIFResult{
+		result := SARIFResult{
 			RuleID:  f.RuleID,
 			Message: SARIFDescription{Text: message},
 			Level:   level,
-		})
+		}
+		if owaspID := owasp.MapRule(f.RuleID); owaspID != "" {
+			result.Properties = SARIFProperties{Tags: []string{owaspID}}
+		}
+		results = append(results, result)
 	}
 	return rules, results
 }

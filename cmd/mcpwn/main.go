@@ -24,14 +24,26 @@ Designed and developed by kodivante
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
-	if cfg.Watch {
-		cancel()
-		ctx, cancel = signal.NotifyContext(context.Background(), os.Interrupt)
+	var ctx context.Context
+	var cancel context.CancelFunc
+	if cfg.TargetsFile != "" {
+		ctx, cancel = context.WithCancel(context.Background())
+	} else {
+		ctx, cancel = context.WithTimeout(context.Background(), cfg.Timeout)
+		if cfg.Watch {
+			cancel()
+			ctx, cancel = signal.NotifyContext(context.Background(), os.Interrupt)
+		}
 	}
 	defer cancel()
 
-	exitCode, err := app.Run(ctx, cfg)
+	var exitCode int
+	var err error
+	if cfg.TargetsFile != "" {
+		exitCode, err = app.RunBatch(ctx, cfg)
+	} else {
+		exitCode, err = app.Run(ctx, cfg)
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "mcpwn: %v\n", err)
 		os.Exit(1)
@@ -44,8 +56,12 @@ type cliFlags struct {
 	command       *string
 	args          *string
 	url           *string
+	authHeader    *string
 	output        *string
 	file          *string
+	outdir        *string
+	record        *string
+	targets       *string
 	timeout       *time.Duration
 	fuzz          *bool
 	fuzzTimeout   *time.Duration
@@ -72,6 +88,9 @@ type cliFlags struct {
 	sideChannel   *bool
 	resTraversal  *bool
 	promptAudit   *bool
+	httpProbe     *bool
+	elicitation   *bool
+	roots         *bool
 }
 
 func parseConfig() (app.Config, bool) {
@@ -89,13 +108,17 @@ Usage:
   mcpwn [flags]
 
 Flags:
-  -transport string          Transport type: 'stdio' or 'sse' (default "stdio")
+  -transport string          Transport type: 'stdio', 'sse' or 'http' (default "stdio")
   -command string            Command to run for stdio transport (e.g. node)
   -args string               Arguments for the command, comma separated (e.g. server.js)
-  -url string                URL for sse transport (e.g. http://localhost:8080/sse)
+  -url string                URL for sse/http transports (e.g. http://localhost:8080/mcp)
+  -auth-header string        Authorization header value for http transport (e.g. "Bearer token")
   -output string             Output format: 'terminal', 'json', 'sarif', 'html', 'badge' (default "terminal")
   -file string               Path to save the output file (optional)
-  -timeout duration          Total audit timeout (default 30s)
+  -outdir string             Directory for per-target reports in batch mode (optional)
+  -record string             Path to save a JSONL transcript of every JSON-RPC message (optional)
+  -targets string            Batch mode: JSON file with an array of targets to audit
+  -timeout duration          Total audit timeout, per target in batch mode (default 30s)
   -fuzz                      Run dynamic fuzzing to confirm command injection findings
   -fuzz-timeout duration     Per-probe fuzz timeout (default 10s)
   -prompt-inject             Probe tools with benign prompt injection payloads
@@ -120,6 +143,9 @@ Flags:
   -side-channel              Detect blind injection via timing, size and error side-channels
   -restraverse               Probe resources/read with traversal payloads
   -prompt-audit              Audit prompt templates for hidden instructions and exfiltration
+  -http-probe                Probe http transport security: auth bypass, session and origin validation
+  -elicitation               Detect if server accepts elicitation/create requests
+  -roots                     Detect if server accepts roots/list requests
   -version                   Print version and exit
 `)
 	}
@@ -127,12 +153,16 @@ Flags:
 
 func declareFlags() cliFlags {
 	flags := cliFlags{
-		transportType: flag.String("transport", "stdio", "Transport type (stdio, sse)"),
+		transportType: flag.String("transport", "stdio", "Transport type (stdio, sse, http)"),
 		command:       flag.String("command", "", "Command to run for stdio transport"),
 		args:          flag.String("args", "", "Arguments for the command (comma separated)"),
-		url:           flag.String("url", "", "URL for sse transport"),
+		url:           flag.String("url", "", "URL for sse or http transport"),
+		authHeader:    flag.String("auth-header", "", "Authorization header value for http transport"),
 		output:        flag.String("output", "terminal", "Output format (terminal, json, sarif, html, badge)"),
 		file:          flag.String("file", "", "Output file path"),
+		outdir:        flag.String("outdir", "", "Directory for per-target reports in batch mode"),
+		record:        flag.String("record", "", "JSONL transcript path for every JSON-RPC message"),
+		targets:       flag.String("targets", "", "Batch mode targets JSON file"),
 		timeout:       flag.Duration("timeout", 30*time.Second, "Total audit timeout"),
 		fuzz:          flag.Bool("fuzz", false, "Run dynamic fuzzing to confirm findings"),
 		fuzzTimeout:   flag.Duration("fuzz-timeout", 10*time.Second, "Per-probe fuzz timeout"),
@@ -141,7 +171,7 @@ func declareFlags() cliFlags {
 		pocLang:       flag.String("poc-lang", "python", "PoC language (python, bash)"),
 		payloadsPath:  flag.String("payloads", "", "Custom fuzz payloads (.mcpwn file or directory)"),
 		watch:         flag.Bool("watch", false, "Run continuously and re-audit on interval"),
-		watchInterval: flag.Duration("interval", 30*time.Second, "Watch interval"),
+		watchInterval: flag.Duration("interval", 30*time.Second, "Watch mode interval"),
 		diffFile:      flag.String("diff", "", "Baseline report file to compare against"),
 		showVersion:   flag.Bool("version", false, "Print version and exit"),
 		deep:          flag.Bool("deep", false, "Enable every dynamic engine in one flag"),
@@ -156,9 +186,12 @@ func declareFlags() cliFlags {
 		rugPull:       flag.Bool("rugpull", false, "Detect tool description changes across sessions"),
 		tokenLeak:     flag.Bool("tokenleak", false, "Scan tool responses and errors for leaked credentials"),
 		sampling:      flag.Bool("sampling", false, "Detect if server accepts sampling/createMessage"),
-		sideChannel:   flag.Bool("side-channel", false, "Detect blind injection via timing, size and error side-channels"),
+		sideChannel:   flag.Bool("side-channel", false, "Detect blind injection via side-channels"),
 		resTraversal:  flag.Bool("restraverse", false, "Probe resources/read with traversal payloads"),
-		promptAudit:   flag.Bool("prompt-audit", false, "Audit prompt templates for hidden instructions and exfiltration"),
+		promptAudit:   flag.Bool("prompt-audit", false, "Audit prompt templates for hidden instructions"),
+		httpProbe:     flag.Bool("http-probe", false, "Probe http transport security"),
+		elicitation:   flag.Bool("elicitation", false, "Detect if server accepts elicitation/create"),
+		roots:         flag.Bool("roots", false, "Detect if server accepts roots/list"),
 	}
 	flag.Parse()
 	return flags
@@ -170,8 +203,12 @@ func (f cliFlags) buildConfig() app.Config {
 		Command:       *f.command,
 		Args:          parseArgs(*f.args),
 		URL:           *f.url,
+		AuthHeader:    *f.authHeader,
 		OutputFormat:  *f.output,
 		OutputFile:    *f.file,
+		OutDirectory:  *f.outdir,
+		RecordPath:    *f.record,
+		TargetsFile:   *f.targets,
 		Timeout:       *f.timeout,
 		Fuzz:          *f.fuzz,
 		FuzzTimeout:   *f.fuzzTimeout,
@@ -198,6 +235,9 @@ func (f cliFlags) buildConfig() app.Config {
 		SideChannel:   *f.sideChannel,
 		ResTraversal:  *f.resTraversal,
 		PromptAudit:   *f.promptAudit,
+		HttpThreat:    *f.httpProbe,
+		Elicitation:   *f.elicitation,
+		Roots:         *f.roots,
 	}
 }
 

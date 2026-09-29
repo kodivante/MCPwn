@@ -7,6 +7,7 @@ import (
 	"github.com/kodivante/MCPwn/v3/internal/client"
 	"github.com/kodivante/MCPwn/v3/internal/desync"
 	"github.com/kodivante/MCPwn/v3/internal/exhaustion"
+	"github.com/kodivante/MCPwn/v3/internal/httpthreat"
 	"github.com/kodivante/MCPwn/v3/internal/pollution"
 	"github.com/kodivante/MCPwn/v3/internal/promptaudit"
 	"github.com/kodivante/MCPwn/v3/internal/protocolfuzz"
@@ -15,6 +16,7 @@ import (
 	"github.com/kodivante/MCPwn/v3/internal/rugpull"
 	"github.com/kodivante/MCPwn/v3/internal/samplingabuse"
 	"github.com/kodivante/MCPwn/v3/internal/schema"
+	"github.com/kodivante/MCPwn/v3/internal/serverrequest"
 	"github.com/kodivante/MCPwn/v3/internal/sidechannel"
 	"github.com/kodivante/MCPwn/v3/internal/ssrfcanary"
 	"github.com/kodivante/MCPwn/v3/internal/tokenleak"
@@ -40,6 +42,9 @@ func resolveDeep(cfg Config) Config {
 	cfg.SideChannel = true
 	cfg.ResTraversal = true
 	cfg.PromptAudit = true
+	cfg.HttpThreat = true
+	cfg.Elicitation = true
+	cfg.Roots = true
 	return cfg
 }
 
@@ -102,13 +107,25 @@ func lifecycleProbes(source func() (client.Transport, error), cfg Config) []audi
 		engine := samplingabuse.NewEngine(source, samplingabuse.Options{})
 		findings = append(findings, engine.Probe()...)
 	}
+	if cfg.Elicitation {
+		engine := serverrequest.NewEngine(source, serverrequest.Options{})
+		findings = append(findings, engine.ProbeElicitation()...)
+	}
+	if cfg.Roots {
+		engine := serverrequest.NewEngine(source, serverrequest.Options{})
+		findings = append(findings, engine.ProbeRoots()...)
+	}
+	if cfg.HttpThreat && cfg.TransportType == "http" {
+		engine := httpthreat.NewEngine(cfg.URL, httpthreat.Options{AuthHeader: cfg.AuthHeader, Timeout: cfg.FuzzTimeout})
+		findings = append(findings, engine.Probe()...)
+	}
 	return findings
 }
 
 func loadProbes(session *client.Session, source func() (client.Transport, error), tools []schema.Tool, cfg Config) []auditor.Finding {
 	var findings []auditor.Finding
 	if cfg.RaceProbe {
-		engine := raceprober.NewEngine(source, tools, raceprober.Options{})
+		engine := raceprober.NewEngine(source, tools, raceprober.Options{Timeout: cfg.FuzzTimeout})
 		findings = append(findings, engine.Probe()...)
 	}
 	if cfg.Exhaust {

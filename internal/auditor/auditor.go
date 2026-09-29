@@ -58,6 +58,7 @@ func NewEngine() *Engine {
 			&StateMutationRule{},
 			&WeakTypingRule{},
 			&MissingRequiredRule{},
+			&ContextSharingRule{},
 		},
 	}
 }

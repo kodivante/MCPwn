@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/kodivante/MCPwn/v3/internal/auditor"
+	"github.com/kodivante/MCPwn/v3/internal/owasp"
 	"github.com/kodivante/MCPwn/v3/internal/version"
 )
 
@@ -22,6 +23,15 @@ type htmlFinding struct {
 	StatusLabel string
 	StatusClass string
 	Evidence    string
+	OwaspMcp    string
+}
+
+type owaspRow struct {
+	ID          string
+	Title       string
+	Status      string
+	Findings    int
+	HasFindings bool
 }
 
 type htmlSection struct {
@@ -40,6 +50,7 @@ type htmlReport struct {
 	CountMedium   int
 	CountLow      int
 	Sections      []htmlSection
+	Owasp         []owaspRow
 }
 
 func GenerateHTML(findings []auditor.Finding) ([]byte, error) {
@@ -70,6 +81,7 @@ func buildHTMLReport(findings []auditor.Finding) htmlReport {
 		Total:       len(findings),
 		Confirmed:   confirmed,
 		Sections:    sections,
+		Owasp:       buildOwaspRows(findings),
 	}
 	report.CountCritical = sectionCount(sections, auditor.SeverityCritical)
 	report.CountHigh = sectionCount(sections, auditor.SeverityHigh)
@@ -110,7 +122,23 @@ func newHTMLFinding(f auditor.Finding) htmlFinding {
 		StatusLabel: statusLabel,
 		StatusClass: statusClass,
 		Evidence:    f.Evidence,
+		OwaspMcp:    owasp.MapRule(f.RuleID),
 	}
+}
+
+func buildOwaspRows(findings []auditor.Finding) []owaspRow {
+	coverage := owasp.CoverageSummary(findings)
+	rows := make([]owaspRow, 0, len(coverage))
+	for _, item := range coverage {
+		rows = append(rows, owaspRow{
+			ID:          item.ID,
+			Title:       item.Title,
+			Status:      item.Status,
+			Findings:    item.Findings,
+			HasFindings: item.Findings > 0,
+		})
+	}
+	return rows
 }
 
 func severityClass(severity auditor.Severity) string {

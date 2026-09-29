@@ -2,6 +2,24 @@
 
 All notable releases of MCPwn are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [3.16.0] - 2026-09-29
+
+The Reach release: Streamable HTTP transport, batch fleet auditing, JSON-RPC transcripts, OWASP MCP Top 10 mapping and HTTP-layer threat detection.
+
+### Added
+- Streamable HTTP transport (`-transport=http`): POST JSON-RPC with optional SSE responses, `Mcp-Session-Id` handling, `Authorization` header via `-auth-header`, and session termination via DELETE. Remote and enterprise MCP servers are now auditable.
+- HTTP threat engine (`-http-probe`): `HttpAuthBypass01` (unauthenticated initialize plus tools/list; HIGH when `-auth-header` proves a definitive bypass), `HttpSession01` (invalid session identifiers accepted), `HttpOrigin01` (foreign Origin accepted: CSRF and DNS-rebinding surface) and `HttpBatch01` (JSON-RPC batches accepted outside MCP semantics).
+- Server-to-client request probes (`-elicitation`, `-roots`): `ElicitationAbuse01` (server can solicit user input through fake client dialogs) and `RootsProbe01` (client filesystem root enumeration capability).
+- Batch mode (`-targets`): audit a fleet of MCP servers from one JSON file with per-target reports (`-outdir`), a consolidated inventory (`-file`), per-target timeouts and per-target error isolation.
+- JSON-RPC transcript recorder (`-record`): every request and response logged as JSONL with timestamps for full reproducibility.
+- OWASP MCP Top 10 mapping: every finding carries its `OwaspMcp` tag (MCP01-MCP10) in JSON, SARIF result properties and a coverage matrix in the HTML report.
+- Static rule `ContextSharing01` (MCP10): tool metadata exposing secret file markers (`.env`, `id_rsa`, private keys) that encourage context over-sharing.
+
+### Fixed
+- Session request timeouts with poisoning: a server that stops responding now bounds every session-based engine to the fuzz timeout and marks the session unresponsive instead of hanging the audit. Full deep audits against unresponsive servers drop from unbounded to roughly forty seconds, and leaked readers can no longer swallow responses of subsequent engines.
+- Race prober bounded: identical concurrent calls now use the bounded handshake and await pattern shared by every raw-connection engine, so servers that ignore `tools/call` can no longer stall the probe.
+- HTTP transport `Receive` now blocks until a response is buffered, matching stdio and SSE semantics; this removes receive races that produced false-positive protocol robustness findings.
+
 ## [3.15.0] - 2026-09-29
 
 Canonical re-release of the v3.14.0 arsenal. The Go module proxy and checksum database had already cached the v3.14.0 version against the superseded commit before its tag was corrected, and cached module versions are immutable by design. This fresh version number publishes the complete arsenal cleanly. No functional changes.

@@ -24,11 +24,14 @@ That night, the first version of MCPwn was written. It grew into a full suite: t
 
 ## Key Features
 
-- **Protocol-native discovery**: full MCP handshake (`initialize`/`initialized`) over stdio or SSE, including `tools/call`, `resources/list`, `resources/read`, `prompts/list` and `prompts/get`.
-- **13 static security rules**: command injection, path traversal, SSRF, credential leaks, SQL injection, denial of service, state mutation, tool poisoning, IDOR, mass assignment, weak typing, missing required fields, and prompt injection sinks.
-- **Deep dynamic testing suite** (`-deep`): fifteen engines — path traversal prober, SSRF canary, schema pollution probe, lifecycle desync, protocol fuzzer, race prober, exhaustion probe, tool rug-pull detector, token leak scanner, sampling abuse probe, side-channel detector, resource traversal prober and prompt template auditor.
+- **Protocol-native discovery**: full MCP handshake (`initialize`/`initialized`) over stdio, SSE or Streamable HTTP, including `tools/call`, `resources/list`, `resources/read`, `prompts/list` and `prompts/get`.
+- **13 static security rules**: command injection, path traversal, SSRF, credential leaks, SQL injection, denial of service, state mutation, tool poisoning, IDOR, mass assignment, weak typing, missing required fields, context over-sharing and prompt injection sinks.
+- **Deep dynamic testing suite** (`-deep`): eighteen engines — path traversal prober, SSRF canary, schema pollution probe, lifecycle desync, protocol fuzzer, race prober, exhaustion probe, tool rug-pull detector, token leak scanner, sampling abuse probe, side-channel detector, resource traversal prober, prompt template auditor, HTTP threat engine, elicitation abuse probe and client roots probe.
+- **OWASP MCP Top 10 mapping**: every finding carries its `MCPxx:2025` tag in JSON, SARIF and HTML, plus a coverage matrix of all ten risks in every HTML report.
+- **Batch fleet auditing** (`-targets`): audit every MCP server in your organization from one JSON file, with per-target reports and a consolidated inventory.
 - **Attack-chain analysis**: always-on post-analysis that links findings into exploitation paths (RCE + credential leak, SSRF + token leak, prompt injection + SSRF) and reports the full chain with evidence.
 - **Per-finding confidence**: every finding carries a 0-100 `Confidence` score — confirmed-with-evidence findings score 95, static detections 70 — enabling near-zero false positive CI gates.
+- **Full transcripts** (`-record`): every JSON-RPC request and response logged as timestamped JSONL for complete reproducibility.
 - **Dynamic fuzzing engine**: confirms command injection findings by sending benign payloads (echo with a unique marker, controlled sleep, self-deleting temp file) with a strict hardcoded deny-list.
 - **Prompt injection simulator**: sends three fixed benign payloads and classifies full or partial reflection of user input.
 - **Security score**: every audit collapses into a grade from A (clean) to F (critical).
@@ -88,16 +91,29 @@ Run the complete deep battery: every static rule, every dynamic engine, everythi
 mcpwn -transport=stdio -command=python3 -args=test/fixtures/mockServerDemo.py -deep
 ```
 
+Audit a remote server over Streamable HTTP:
+
+```bash
+mcpwn -transport=http -url=https://mcp.example.com/mcp -auth-header="Bearer token" -deep
+```
+
+Audit an entire fleet from one file:
+
+```bash
+mcpwn -targets=targets.json -deep -outdir=reports -file=inventory.json
+```
+
 ---
 
 ## CLI Reference
 
 | Flag | Default | Description |
 |---|---|---|
-| `-transport` | `stdio` | Transport type: `stdio` or `sse` |
+| `-transport` | `stdio` | Transport type: `stdio`, `sse` or `http` |
 | `-command` | — | Command to run for stdio transport |
 | `-args` | — | Command arguments, comma separated |
-| `-url` | — | URL for SSE transport |
+| `-url` | — | URL for SSE/HTTP transports |
+| `-auth-header` | — | `Authorization` header value for HTTP transport (e.g. `Bearer token`) |
 | `-output` | `terminal` | Output format: `terminal`, `json`, `sarif`, `html`, `badge` |
 | `-file` | — | Write output to file instead of stdout |
 | `-timeout` | `30s` | Per-audit timeout |
@@ -125,6 +141,12 @@ mcpwn -transport=stdio -command=python3 -args=test/fixtures/mockServerDemo.py -d
 | `-side-channel` | `false` | Detect blind injection via timing, size and error side-channels |
 | `-restraverse` | `false` | Probe resources/read with traversal payloads |
 | `-prompt-audit` | `false` | Audit prompt templates for hidden instructions and exfiltration |
+| `-http-probe` | `false` | Probe HTTP transport security: auth bypass, session and origin validation |
+| `-elicitation` | `false` | Detect if server accepts elicitation/create requests |
+| `-roots` | `false` | Detect if server accepts roots/list requests |
+| `-record` | — | Save a JSONL transcript of every JSON-RPC message |
+| `-targets` | — | Batch mode: JSON file with an array of targets to audit |
+| `-outdir` | — | Directory for per-target reports in batch mode |
 | `-version` | — | Print version and exit |
 
 **Exit codes**: `0` when no CRITICAL or HIGH findings, `1` otherwise. Any operational error also exits `1` with a message on stderr.
@@ -194,6 +216,9 @@ Fifteen engines, every one safe by default. `-deep` enables them all; `-quick` s
 | Side-channel detector | `-side-channel` | `SideChannel01/02/03` | Baselines a benign call per tool, then measures timing, error-differential and response-size deviations — blind injection without payload reflection |
 | Resource traversal prober | `-restraverse` | `ResourceTraversal01` (HIGH) | Full MCP Resources coverage: probes `resources/read` URIs with marker files outside the resource root |
 | Prompt template auditor | `-prompt-audit` | `PromptPoisoning01` (HIGH/CRITICAL) | Full MCP Prompts coverage: `prompts/list` and `prompts/get` templates scanned for role manipulation (`ignore previous instructions`) and exfiltration directives (URLs, webhooks, upload targets) |
+| HTTP threat engine | `-http-probe` | `HttpAuthBypass01`, `HttpSession01`, `HttpOrigin01`, `HttpBatch01` | Streamable HTTP attacks: unauthenticated sessions, invalid `Mcp-Session-Id` acceptance, foreign Origin tolerance (CSRF/DNS-rebinding surface) and JSON-RPC batch permissiveness |
+| Elicitation abuse probe | `-elicitation` | `ElicitationAbuse01` (MEDIUM) | Server accepting `elicitation/create` can phish users through fake client-side dialogs |
+| Client roots probe | `-roots` | `RootsProbe01` (MEDIUM) | Server accepting `roots/list` can enumerate the client filesystem scope |
 | Attack-chain analyzer | always on | `AttackChain01` (HIGH/CRITICAL) | Links findings into exploitation paths: RCE + credential leak becomes full host takeover; SSRF + token leak becomes lateral movement — each chain reports its links with evidence |
 | Dynamic fuzzer | `-fuzz` | Confirms `CmdInjection01` | Benign echo/sleep/temp-file payloads with a strict deny-list (`rm`, `curl`, `wget`, `nc`, `ssh`, `sudo` are hardcoded-rejected) |
 | Prompt injection simulator | `-prompt-inject` | `PromptInjection01` | Three fixed benign payloads classified as full or partial reflection |
@@ -201,6 +226,46 @@ Fifteen engines, every one safe by default. `-deep` enables them all; `-quick` s
 Every confirmed finding carries a `Confidence` score (0-100): confirmed with evidence scores 95, static detections 70, behavioral side-channel detections 55. Machine-readable in JSON and SARIF for CI gates.
 
 Protocol-level findings are rendered in the `--- Advanced Probes ---` terminal section so they never mix with tool findings.
+
+---
+
+## OWASP MCP Top 10
+
+Every finding is mapped to the official [OWASP Top 10 for MCP](https://owasp.org/www-project-mcp-top-10/) and carries its `OwaspMcp` tag in JSON, SARIF and HTML:
+
+| OWASP ID | Risk | MCPwn coverage |
+|---|---|---|
+| `MCP01:2025` | Token Mismanagement & Secret Exposure | `TokenLeak01`, `CredentialsLeak01` |
+| `MCP02:2025` | Privilege Escalation via Scope Creep | `Idor01`, `MassAssignment01` (+pollution), `StateMutation01` |
+| `MCP03:2025` | Tool Poisoning | `ToolPoisoning01`, `PromptPoisoning01`, `ToolRugPull01` |
+| `MCP04:2025` | Software Supply Chain Attacks | planned |
+| `MCP05:2025` | Command Injection & Execution | `CmdInjection01` + fuzzer, `SqlInjection01` |
+| `MCP06:2025` | Prompt Injection via Contextual Payloads | `PromptInjection01` + reflection simulator |
+| `MCP07:2025` | Insufficient Authentication & Authorization | `HttpAuthBypass01` (full OAuth auditor planned) |
+| `MCP08:2025` | Lack of Audit and Telemetry | planned (source analysis) |
+| `MCP09:2025` | Shadow MCP Servers | planned (local discovery) |
+| `MCP10:2025` | Context Injection & Over-Sharing | `PathTraversal01`, `ResourceTraversal01`, `ContextSharing01` |
+
+HTML reports include the full coverage matrix with per-risk finding counts.
+
+---
+
+## Batch Fleet Auditing
+
+Audit every MCP server in the organization from a single JSON file:
+
+```json
+[
+  {"name": "filesystem", "transport": "stdio", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]},
+  {"name": "remote", "transport": "http", "url": "https://mcp.example.com/mcp", "authHeader": "Bearer token"}
+]
+```
+
+```bash
+mcpwn -targets=targets.json -deep -outdir=reports -file=inventory.json
+```
+
+Each target gets its own grade line in the terminal, a full JSON report in `-outdir`, and `-file` receives the consolidated inventory. `-timeout` applies per target. The exit code is 1 when any target has CRITICAL or HIGH findings.
 
 ---
 

@@ -14,6 +14,8 @@ func connect(ctx context.Context, cfg Config) (client.Transport, error) {
 		return connectStdio(ctx, cfg)
 	case "sse":
 		return connectSSE(ctx, cfg)
+	case "http":
+		return connectHTTP(ctx, cfg)
 	default:
 		return nil, fmt.Errorf("invalid transport type: %s", cfg.TransportType)
 	}
@@ -31,4 +33,11 @@ func connectSSE(ctx context.Context, cfg Config) (client.Transport, error) {
 		return nil, errors.New("--url is required for sse transport")
 	}
 	return client.NewSSETransport(ctx, cfg.URL)
+}
+
+func connectHTTP(ctx context.Context, cfg Config) (client.Transport, error) {
+	if cfg.URL == "" {
+		return nil, errors.New("--url is required for http transport")
+	}
+	return client.NewHTTPTransport(ctx, cfg.URL, client.HTTPOptions{AuthHeader: cfg.AuthHeader})
 }

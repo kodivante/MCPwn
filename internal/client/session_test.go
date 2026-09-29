@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/kodivante/MCPwn/v3/internal/testutil"
 )
@@ -94,5 +96,68 @@ func TestSessionTransportFailure(t *testing.T) {
 	}
 	if !errors.Is(err, io.EOF) {
 		t.Fatalf("expected io.EOF in error chain, got %v", err)
+	}
+}
+
+type hangingTransport struct {
+	done chan struct{}
+}
+
+func (h *hangingTransport) Send(JSONRPCMessage) error {
+	return nil
+}
+
+func (h *hangingTransport) Receive() (JSONRPCMessage, error) {
+	<-h.done
+	return JSONRPCMessage{}, errors.New("transport closed")
+}
+
+func (h *hangingTransport) Close() error {
+	close(h.done)
+	return nil
+}
+
+func TestSessionTimeoutPoisonsUnresponsiveServer(t *testing.T) {
+	transport := &hangingTransport{done: make(chan struct{})}
+	defer transport.Close()
+	session := NewSession(transport)
+	session.SetRequestTimeout(50 * time.Millisecond)
+
+	start := time.Now()
+	if _, err := session.ListTools(); err == nil {
+		t.Fatal("expected timeout error on unresponsive server")
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("expected bounded wait, took %s", elapsed)
+	}
+
+	secondStart := time.Now()
+	_, err := session.ListTools()
+	if err == nil {
+		t.Fatal("expected poisoned session to reject further requests")
+	}
+	if !strings.Contains(err.Error(), "unresponsive") {
+		t.Errorf("expected unresponsive error, got %v", err)
+	}
+	if elapsed := time.Since(secondStart); elapsed > 100*time.Millisecond {
+		t.Errorf("expected instant rejection after poisoning, took %s", elapsed)
+	}
+}
+
+func TestSessionWithoutTimeoutStaysUnbounded(t *testing.T) {
+	transport := &hangingTransport{done: make(chan struct{})}
+	session := NewSession(transport)
+	if session.poisoned.Load() {
+		t.Error("session must not start poisoned")
+	}
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		transport.Close()
+	}()
+	if _, err := session.ListTools(); err == nil {
+		t.Fatal("expected error after transport close")
+	}
+	if session.poisoned.Load() {
+		t.Error("blocking sessions must not poison on transport errors")
 	}
 }

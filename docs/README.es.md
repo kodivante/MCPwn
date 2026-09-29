@@ -24,11 +24,14 @@ Esa noche se escribió la primera versión de MCPwn. Creció hasta ser una suite
 
 ## Características Principales
 
-- **Descubrimiento nativo del protocolo**: handshake MCP completo (`initialize`/`initialized`) vía stdio o SSE, incluyendo `tools/call`, `resources/list`, `resources/read`, `prompts/list` y `prompts/get`.
-- **13 reglas de seguridad estáticas**: inyección de comandos, path traversal, SSRF, fuga de credenciales, inyección SQL, denegación de servicio, mutación de estado, tool poisoning, IDOR, mass assignment, tipado débil, campos requeridos faltantes y sinks de prompt injection.
-- **Suite de testing dinámico profundo** (`-deep`): quince motores — prober de traversal, canary SSRF, sonda de schema pollution, desync de lifecycle, fuzzer de protocolo, prober de race conditions, sonda de agotamiento, detector de rug-pull, escáner de token leaks, sonda de sampling, detector de side-channels, prober de resource traversal y auditor de prompt templates.
+- **Descubrimiento nativo del protocolo**: handshake MCP completo (`initialize`/`initialized`) vía stdio, SSE o Streamable HTTP, incluyendo `tools/call`, `resources/list`, `resources/read`, `prompts/list` y `prompts/get`.
+- **13 reglas de seguridad estáticas**: inyección de comandos, path traversal, SSRF, fuga de credenciales, inyección SQL, denegación de servicio, mutación de estado, tool poisoning, IDOR, mass assignment, tipado débil, campos requeridos faltantes, over-sharing de contexto y sinks de prompt injection.
+- **Suite de testing dinámico profundo** (`-deep`): dieciocho motores — prober de traversal, canary SSRF, sonda de schema pollution, desync de lifecycle, fuzzer de protocolo, prober de race conditions, sonda de agotamiento, detector de rug-pull, escáner de token leaks, sonda de sampling, detector de side-channels, prober de resource traversal, auditor de prompt templates, motor de amenazas HTTP, sonda de elicitation y sonda de roots del cliente.
+- **Mapping OWASP MCP Top 10**: cada hallazgo lleva su tag `MCPxx:2025` en JSON, SARIF y HTML, más una matriz de cobertura de los diez riesgos en cada reporte HTML.
+- **Auditoría de flotas** (`-targets`): audita todos los servidores MCP de la organización desde un solo archivo JSON, con reportes por objetivo e inventario consolidado.
 - **Análisis de cadenas de ataque**: post-análisis siempre activo que enlaza hallazgos en rutas de explotación (RCE + fuga de credenciales, SSRF + token leak, prompt injection + SSRF) y reporta la cadena completa con evidencia.
 - **Confianza por hallazgo**: cada hallazgo lleva un score `Confidence` de 0-100 — confirmado con evidencia puntúa 95, estático 70 — habilitando gates de CI con casi cero falsos positivos.
+- **Transcripciones completas** (`-record`): cada request y response JSON-RPC queda logueado como JSONL con timestamps para reproducibilidad total.
 - **Motor de fuzzing dinámico**: confirma hallazgos de inyección de comandos con payloads benignos (echo con marca única, sleep controlado, archivo temporal auto-borrable) con una deny-list estricta hardcodeada.
 - **Simulador de prompt injection**: envía tres payloads benignos fijos y clasifica el reflejo total o parcial del input del usuario.
 - **Puntaje de seguridad**: cada auditoría colapsa en un grado de A (limpio) a F (crítico).
@@ -88,16 +91,29 @@ Corre la batería profunda completa: todas las reglas estáticas, todos los moto
 mcpwn -transport=stdio -command=python3 -args=test/fixtures/mockServerDemo.py -deep
 ```
 
+Audita un servidor remoto vía Streamable HTTP:
+
+```bash
+mcpwn -transport=http -url=https://mcp.example.com/mcp -auth-header="Bearer token" -deep
+```
+
+Audita una flota completa desde un solo archivo:
+
+```bash
+mcpwn -targets=targets.json -deep -outdir=reports -file=inventory.json
+```
+
 ---
 
 ## Referencia de CLI
 
 | Flag | Default | Descripción |
 |---|---|---|
-| `-transport` | `stdio` | Tipo de transporte: `stdio` o `sse` |
+| `-transport` | `stdio` | Tipo de transporte: `stdio`, `sse` o `http` |
 | `-command` | — | Comando a ejecutar para el transporte stdio |
 | `-args` | — | Argumentos del comando, separados por comas |
-| `-url` | — | URL para el transporte SSE |
+| `-url` | — | URL para los transportes SSE/HTTP |
+| `-auth-header` | — | Valor del header `Authorization` para el transporte HTTP (ej. `Bearer token`) |
 | `-output` | `terminal` | Formato: `terminal`, `json`, `sarif`, `html`, `badge` |
 | `-file` | — | Escribir la salida a un archivo en vez de stdout |
 | `-timeout` | `30s` | Timeout por auditoría |
@@ -125,6 +141,12 @@ mcpwn -transport=stdio -command=python3 -args=test/fixtures/mockServerDemo.py -d
 | `-side-channel` | `false` | Detecta inyección ciega por timing, tamaño y errores |
 | `-restraverse` | `false` | Sondea resources/read con payloads de traversal |
 | `-prompt-audit` | `false` | Audita templates de prompts por instrucciones ocultas y exfiltración |
+| `-http-probe` | `false` | Sondea la seguridad del transporte HTTP: auth bypass, sesión y Origin |
+| `-elicitation` | `false` | Detecta si el servidor acepta elicitation/create |
+| `-roots` | `false` | Detecta si el servidor acepta roots/list |
+| `-record` | — | Guarda una transcripción JSONL de cada mensaje JSON-RPC |
+| `-targets` | — | Modo batch: archivo JSON con el arreglo de objetivos a auditar |
+| `-outdir` | — | Directorio para reportes por objetivo en modo batch |
 | `-version` | — | Imprimir la versión y salir |
 
 **Códigos de salida**: `0` sin hallazgos CRITICAL ni HIGH, `1` en cualquier otro caso. Cualquier error operativo también sale con `1` y mensaje en stderr.
@@ -194,6 +216,9 @@ Quince motores, todos seguros por diseño. `-deep` los activa todos; `-quick` de
 | Detector de side-channels | `-side-channel` | `SideChannel01/02/03` | Baseline benigno por tool, luego mide desviaciones de timing, error-diferencial y tamaño de respuesta — inyección ciega sin reflejo de payload |
 | Prober de resource traversal | `-restraverse` | `ResourceTraversal01` (HIGH) | Cobertura completa de MCP Resources: sondea URIs de `resources/read` con marcadores fuera del resource root |
 | Auditor de prompts | `-prompt-audit` | `PromptPoisoning01` (HIGH/CRITICAL) | Cobertura completa de MCP Prompts: templates de `prompts/list` y `prompts/get` escaneados por manipulación de roles (`ignore previous instructions`) y directivas de exfiltración (URLs, webhooks, destinos de subida) |
+| Motor de amenazas HTTP | `-http-probe` | `HttpAuthBypass01`, `HttpSession01`, `HttpOrigin01`, `HttpBatch01` | Ataques sobre Streamable HTTP: sesiones sin autenticar, aceptación de `Mcp-Session-Id` inválido, tolerancia a Origin ajeno (superficie CSRF/DNS-rebinding) y permisividad de batches JSON-RPC |
+| Sonda de elicitation | `-elicitation` | `ElicitationAbuse01` (MEDIUM) | Un servidor que acepta `elicitation/create` puede suplantar diálogos del cliente y phishear credenciales del usuario |
+| Sonda de roots del cliente | `-roots` | `RootsProbe01` (MEDIUM) | Un servidor que acepta `roots/list` puede enumerar el alcance del filesystem del cliente |
 | Analizador de cadenas | siempre activo | `AttackChain01` (HIGH/CRITICAL) | Enlaza hallazgos en rutas de explotación: RCE + fuga de credenciales se convierte en toma total del host; SSRF + token leak en movimiento lateral — cada cadena reporta sus eslabones con evidencia |
 | Fuzzer dinámico | `-fuzz` | Confirma `CmdInjection01` | Payloads benignos de echo/sleep/temp-file con deny-list estricta (`rm`, `curl`, `wget`, `nc`, `ssh`, `sudo` son rechazados por hardcode) |
 | Simulador de prompt injection | `-prompt-inject` | `PromptInjection01` | Tres payloads benignos fijos clasificados como reflejo total o parcial |
@@ -201,6 +226,46 @@ Quince motores, todos seguros por diseño. `-deep` los activa todos; `-quick` de
 Cada hallazgo confirmado lleva un score `Confidence` (0-100): confirmado con evidencia puntúa 95, estático 70, side-channel 55. Legible por máquinas en JSON y SARIF para gates de CI.
 
 Los hallazgos de protocolo se renderizan en la sección `--- Advanced Probes ---` del terminal para que nunca se mezclen con los de las tools.
+
+---
+
+## OWASP MCP Top 10
+
+Cada hallazgo se mapea al [OWASP Top 10 para MCP](https://owasp.org/www-project-mcp-top-10/) oficial y lleva su tag `OwaspMcp` en JSON, SARIF y HTML:
+
+| ID OWASP | Riesgo | Cobertura MCPwn |
+|---|---|---|
+| `MCP01:2025` | Token Mismanagement & Secret Exposure | `TokenLeak01`, `CredentialsLeak01` |
+| `MCP02:2025` | Privilege Escalation via Scope Creep | `Idor01`, `MassAssignment01` (+pollution), `StateMutation01` |
+| `MCP03:2025` | Tool Poisoning | `ToolPoisoning01`, `PromptPoisoning01`, `ToolRugPull01` |
+| `MCP04:2025` | Software Supply Chain Attacks | planificado |
+| `MCP05:2025` | Command Injection & Execution | `CmdInjection01` + fuzzer, `SqlInjection01` |
+| `MCP06:2025` | Prompt Injection via Contextual Payloads | `PromptInjection01` + simulador de reflejo |
+| `MCP07:2025` | Insufficient Authentication & Authorization | `HttpAuthBypass01` (auditor OAuth completo planificado) |
+| `MCP08:2025` | Lack of Audit and Telemetry | planificado (análisis de código fuente) |
+| `MCP09:2025` | Shadow MCP Servers | planificado (discovery local) |
+| `MCP10:2025` | Context Injection & Over-Sharing | `PathTraversal01`, `ResourceTraversal01`, `ContextSharing01` |
+
+Los reportes HTML incluyen la matriz de cobertura completa con conteos por riesgo.
+
+---
+
+## Auditoría de Flotas
+
+Audita todos los servidores MCP de la organización desde un único archivo JSON:
+
+```json
+[
+  {"name": "filesystem", "transport": "stdio", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]},
+  {"name": "remote", "transport": "http", "url": "https://mcp.example.com/mcp", "authHeader": "Bearer token"}
+]
+```
+
+```bash
+mcpwn -targets=targets.json -deep -outdir=reports -file=inventory.json
+```
+
+Cada objetivo recibe su línea de grado en el terminal, un reporte JSON completo en `-outdir`, y `-file` recibe el inventario consolidado. `-timeout` aplica por objetivo. El exit code es 1 cuando cualquier objetivo tiene hallazgos CRITICAL o HIGH.
 
 ---
 

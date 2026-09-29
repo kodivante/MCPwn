@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kodivante/MCPwn/v3/internal/auditor"
 	"github.com/kodivante/MCPwn/v3/internal/schema"
@@ -107,7 +108,7 @@ func TestClassifyReflection(t *testing.T) {
 }
 
 func TestProbeToolsReflection(t *testing.T) {
-	engine := NewEngine(reflectingCaller())
+	engine := NewEngine(reflectingCaller(), Options{})
 	findings := engine.ProbeTools([]schema.Tool{probeTool()})
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
@@ -124,7 +125,7 @@ func TestProbeToolsReflection(t *testing.T) {
 }
 
 func TestProbeToolsPartialReflection(t *testing.T) {
-	engine := NewEngine(partialReflectingCaller())
+	engine := NewEngine(partialReflectingCaller(), Options{})
 	findings := engine.ProbeTools([]schema.Tool{probeTool()})
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
@@ -138,14 +139,14 @@ func TestProbeToolsPartialReflection(t *testing.T) {
 }
 
 func TestProbeToolsSanitized(t *testing.T) {
-	engine := NewEngine(sanitizingCaller())
+	engine := NewEngine(sanitizingCaller(), Options{})
 	if findings := engine.ProbeTools([]schema.Tool{probeTool()}); len(findings) != 0 {
 		t.Errorf("expected 0 findings, got %d", len(findings))
 	}
 }
 
 func TestProbeToolsCallFailure(t *testing.T) {
-	engine := NewEngine(failingCaller())
+	engine := NewEngine(failingCaller(), Options{})
 	if findings := engine.ProbeTools([]schema.Tool{probeTool()}); len(findings) != 0 {
 		t.Errorf("expected 0 findings on call failure, got %d", len(findings))
 	}
@@ -153,12 +154,31 @@ func TestProbeToolsCallFailure(t *testing.T) {
 
 func TestProbeToolsSkipsToolsWithoutStringParams(t *testing.T) {
 	caller := reflectingCaller()
-	engine := NewEngine(caller)
+	engine := NewEngine(caller, Options{})
 	findings := engine.ProbeTools([]schema.Tool{numericTool()})
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings, got %d", len(findings))
 	}
 	if caller.calls != 0 {
 		t.Errorf("expected no tool calls, got %d", caller.calls)
+	}
+}
+
+type hangingCaller struct{}
+
+func (hangingCaller) CallTool(name string, arguments json.RawMessage) (json.RawMessage, error) {
+	time.Sleep(5 * time.Second)
+	return nil, errors.New("unreachable")
+}
+
+func TestProbeToolsBailsOnTimeout(t *testing.T) {
+	engine := NewEngine(hangingCaller{}, Options{Timeout: 50 * time.Millisecond})
+	start := time.Now()
+	findings := engine.ProbeTools([]schema.Tool{probeTool(), probeTool()})
+	if len(findings) != 0 {
+		t.Errorf("expected 0 findings on hanging caller, got %d", len(findings))
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("expected fast bail on timeout, took %s", elapsed)
 	}
 }

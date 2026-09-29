@@ -2,9 +2,11 @@ package promptinject
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/kodivante/MCPwn/v3/internal/auditor"
 	"github.com/kodivante/MCPwn/v3/internal/schema"
@@ -18,17 +20,30 @@ const (
 
 const partialWindow = 4
 
+const defaultTimeout = 10 * time.Second
+
+var errProbeTimeout = errors.New("prompt injection probe timed out")
+
 type ToolCaller interface {
 	CallTool(name string, arguments json.RawMessage) (json.RawMessage, error)
 }
 
-type Engine struct {
-	caller ToolCaller
-	probes []string
+type Options struct {
+	Timeout time.Duration
 }
 
-func NewEngine(caller ToolCaller) *Engine {
-	return &Engine{caller: caller, probes: builtinProbes()}
+type Engine struct {
+	caller  ToolCaller
+	probes  []string
+	timeout time.Duration
+}
+
+func NewEngine(caller ToolCaller, options Options) *Engine {
+	timeout := options.Timeout
+	if timeout <= 0 {
+		timeout = defaultTimeout
+	}
+	return &Engine{caller: caller, probes: builtinProbes(), timeout: timeout}
 }
 
 func builtinProbes() []string {
@@ -46,29 +61,55 @@ func (e *Engine) ProbeTools(tools []schema.Tool) []auditor.Finding {
 		if !ok {
 			continue
 		}
-		findings = append(findings, e.probeTool(tool.Name, param)...)
+		toolFindings, hung := e.probeTool(tool.Name, param)
+		findings = append(findings, toolFindings...)
+		if hung {
+			break
+		}
 	}
 	return findings
 }
 
-func (e *Engine) probeTool(toolName, param string) []auditor.Finding {
+func (e *Engine) probeTool(toolName, param string) ([]auditor.Finding, bool) {
 	for _, payload := range e.probes {
 		arguments, err := json.Marshal(map[string]string{param: payload})
 		if err != nil {
 			continue
 		}
-		raw, err := e.caller.CallTool(toolName, arguments)
+		raw, err := e.callTool(toolName, arguments)
+		if errors.Is(err, errProbeTimeout) {
+			return nil, true
+		}
 		if err != nil {
 			continue
 		}
 		switch classifyReflection(payload, responseText(raw)) {
 		case reflectionFull:
-			return []auditor.Finding{fullReflectionFinding(toolName, param, payload)}
+			return []auditor.Finding{fullReflectionFinding(toolName, param, payload)}, false
 		case reflectionPartial:
-			return []auditor.Finding{partialReflectionFinding(toolName, param, payload)}
+			return []auditor.Finding{partialReflectionFinding(toolName, param, payload)}, false
 		}
 	}
-	return nil
+	return nil, false
+}
+
+func (e *Engine) callTool(toolName string, arguments json.RawMessage) (json.RawMessage, error) {
+	done := make(chan callResult, 1)
+	go func() {
+		raw, err := e.caller.CallTool(toolName, arguments)
+		done <- callResult{raw: raw, err: err}
+	}()
+	select {
+	case res := <-done:
+		return res.raw, res.err
+	case <-time.After(e.timeout):
+		return nil, errProbeTimeout
+	}
+}
+
+type callResult struct {
+	raw json.RawMessage
+	err error
 }
 
 func fullReflectionFinding(toolName, param, payload string) auditor.Finding {

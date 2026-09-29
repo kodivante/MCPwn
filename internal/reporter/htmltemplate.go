@@ -48,6 +48,13 @@ h2.low { color: #0969da; }
 .remediation { margin-top: 8px; font-size: 13px; color: #57606a; }
 .remediation .k { color: #6e7781; font-weight: 700; }
 .evidence { margin-top: 8px; font-size: 12px; color: #116329; background: #dafbe1; border: 1px solid #aff0c4; border-radius: 6px; padding: 8px 10px; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.owasp { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
+.owasp th { text-align: left; padding: 8px 10px; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: #57606a; border-bottom: 2px solid #d0d7de; }
+.owasp td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #d0d7de; }
+.owasp .detected { color: #cf222e; font-weight: 700; }
+.owasp .covered { color: #1a7f37; }
+.owasp .partial { color: #bf8700; }
+.owasp .planned { color: #6e7781; }
 .empty { margin-top: 28px; text-align: center; color: #1a7f37; background: #ffffff; border: 1px solid #d0d7de; border-radius: 8px; padding: 32px; font-size: 15px; }
 footer { margin-top: 36px; padding-top: 16px; border-top: 1px solid #d0d7de; color: #57606a; font-size: 12px; }
 footer .author { color: #1f2328; font-weight: 700; font-size: 13px; margin-bottom: 2px; }
@@ -71,6 +78,15 @@ footer .author span { color: #ff8000; }
 <div class="stat medium"><div class="num">{{.CountMedium}}</div><div class="label">Medium</div></div>
 <div class="stat low"><div class="num">{{.CountLow}}</div><div class="label">Low</div></div>
 </div>
+<section>
+<h2>OWASP MCP Top 10</h2>
+<table class="owasp">
+<tr><th>ID</th><th>Risk</th><th>Coverage</th><th>Findings</th></tr>
+{{range .Owasp}}
+<tr><td>{{.ID}}</td><td>{{.Title}}</td><td class="{{.Status}}{{if .HasFindings}} detected{{end}}">{{.Status}}{{if .HasFindings}} · detected{{end}}</td><td>{{.Findings}}</td></tr>
+{{end}}
+</table>
+</section>
 {{if .Sections}}
 {{range .Sections}}
 <section>
@@ -83,6 +99,7 @@ footer .author span { color: #ff8000; }
 </div>
 <div class="row"><span class="k">Rule</span><span class="rule">{{.RuleID}}</span></div>
 <div class="row"><span class="k">Path</span><span class="path">{{.ParamPath}}</span></div>
+{{if .OwaspMcp}}<div class="row"><span class="k">OWASP</span><span class="path">{{.OwaspMcp}}</span></div>{{end}}
 <p class="desc">{{.Description}}</p>
 {{if .Remediation}}
 <p class="remediation"><span class="k">Fix:</span> {{.Remediation}}</p>

@@ -2,6 +2,13 @@
 
 All notable releases of MCPwn are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [3.15.0] - 2026-09-29
+
+Canonical re-release of the v3.14.0 arsenal. The Go module proxy and checksum database had already cached the v3.14.0 version against the superseded commit before its tag was corrected, and cached module versions are immutable by design. This fresh version number publishes the complete arsenal cleanly. No functional changes.
+
+### Fixed
+- `go install github.com/kodivante/MCPwn/v3/cmd/mcpwn@latest` now builds the correct code. Installing `@v3.14.0` had served the pre-arsenal tree due to proxy caching.
+
 ## [3.14.0] - 2026-09-29
 
 The unbeatable arsenal release: eight new engines, complete MCP protocol coverage (tools, resources, prompts, sampling), attack-chain analysis and per-finding confidence scores.

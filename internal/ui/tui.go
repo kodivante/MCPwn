@@ -102,7 +102,9 @@ func isAdvancedRule(ruleID string) bool {
 		"ToolRugPull", "TokenLeak", "SamplingAbuse", "SideChannel",
 		"ResourceTraversal", "PromptPoisoning", "AttackChain",
 		"HttpSession", "HttpOrigin", "HttpAuthBypass", "HttpBatch",
-		"ElicitationAbuse", "RootsProbe",
+		"ElicitationAbuse", "RootsProbe", "ToolDrift", "BehaviorDrift",
+		"Source", "DependencyVuln", "Typosquat", "UnpinnedDep",
+		"OAuth", "TokenPassthrough",
 	}
 	for _, prefix := range advancedPrefixes {
 		if strings.HasPrefix(ruleID, prefix) {

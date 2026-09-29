@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/kodivante/MCPwn/v3/internal/auditor"
+	"github.com/kodivante/MCPwn/v3/internal/authaudit"
 	"github.com/kodivante/MCPwn/v3/internal/client"
 	"github.com/kodivante/MCPwn/v3/internal/desync"
 	"github.com/kodivante/MCPwn/v3/internal/exhaustion"
@@ -45,6 +46,7 @@ func resolveDeep(cfg Config) Config {
 	cfg.HttpThreat = true
 	cfg.Elicitation = true
 	cfg.Roots = true
+	cfg.AuthAudit = true
 	return cfg
 }
 
@@ -117,6 +119,10 @@ func lifecycleProbes(source func() (client.Transport, error), cfg Config) []audi
 	}
 	if cfg.HttpThreat && cfg.TransportType == "http" {
 		engine := httpthreat.NewEngine(cfg.URL, httpthreat.Options{AuthHeader: cfg.AuthHeader, Timeout: cfg.FuzzTimeout})
+		findings = append(findings, engine.Probe()...)
+	}
+	if cfg.AuthAudit && cfg.TransportType == "http" {
+		engine := authaudit.NewEngine(cfg.URL, cfg.AuthHeader, authaudit.Options{Timeout: cfg.FuzzTimeout})
 		findings = append(findings, engine.Probe()...)
 	}
 	return findings

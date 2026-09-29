@@ -2,6 +2,18 @@
 
 All notable releases of MCPwn are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [3.18.0] - 2026-09-29
+
+The Depth release: source code analysis, supply chain auditing, OAuth authorization probing, shadow MCP discovery and four new static rules — closing OWASP MCP Top 10 coverage across MCP04, MCP07, MCP08 and MCP09.
+
+### Added
+- Source code analysis (`-source`): pure-Go scanner over Python/JS/TS trees (skipping `node_modules`, `venv`, `dist`, capped in files and size) reporting `SourceExec01` (os.system, subprocess, eval, exec, shell=True, child_process, execSync, new Function), `SourceDeserialization01` (pickle.loads, yaml.load without SafeLoader, marshal.loads, node-serialize) and `SourceSecret01` (HIGH: OpenAI-style keys, AWS keys, private key blocks, hardcoded api_key/secret/password/token literals) with file:line evidence. Runs standalone in CI (`mcpwn -source=.`) or alongside a live audit.
+- Supply chain auditing (`-supply-chain`): parses requirements.txt, package.json and go.mod, queries the live OSV.dev vulnerability database per pinned dependency (`DependencyVuln01`, HIGH, confirmed with real GHSA/PYSEC identifiers), flags typosquats via Damerau-Levenshtein distance 1 from popular PyPI/npm packages (`Typosquat01`) and unpinned pip dependencies (`UnpinnedDep01`).
+- OAuth authorization auditor (`-auth-audit`, HTTP transports): follows 401 WWW-Authenticate challenges into authorization server metadata, reports missing RFC 9728 metadata (`OAuthMetadata01`), absent S256 PKCE advertisement (`OAuthPkce01`) and acceptance of fabricated bearer tokens (`TokenPassthrough01`, HIGH).
+- Shadow MCP discovery (`-discover`): inventories every MCP server configured on the machine across Claude Desktop, Claude Code, Cursor, VS Code and `.mcp.json` locations, classifies each as local-stdio, local-http or remote, and exports JSON inventories.
+- Four new static rules: `TemplateInjection01` (MEDIUM), `UnsafeDeserialization01` (HIGH), `PrototypePollution01` (MEDIUM) and `NoSqlInjection01` (MEDIUM) — the static rule set grows to seventeen.
+- OWASP coverage: MCP04 (supply chain) and MCP07 (authentication) are now covered; MCP08 and MCP09 are partial via source analysis and discovery. No OWASP MCP Top 10 item remains unplanned.
+
 ## [3.17.0] - 2026-09-29
 
 The Graph release: an entity attack graph, multi-hop chain detection, a chain-aware risk index and approval snapshots with drift detection.

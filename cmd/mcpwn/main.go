@@ -39,9 +39,14 @@ Designed and developed by kodivante
 
 	var exitCode int
 	var err error
-	if cfg.TargetsFile != "" {
+	switch {
+	case cfg.Discover:
+		exitCode, err = app.RunDiscover(cfg)
+	case cfg.TargetsFile != "":
 		exitCode, err = app.RunBatch(ctx, cfg)
-	} else {
+	case cfg.SourcePath != "" && cfg.Command == "" && cfg.URL == "":
+		exitCode, err = app.RunSourceScan(ctx, cfg)
+	default:
 		exitCode, err = app.Run(ctx, cfg)
 	}
 	if err != nil {
@@ -64,6 +69,10 @@ type cliFlags struct {
 	targets         *string
 	snapshotSave    *string
 	snapshotCompare *string
+	sourcePath      *string
+	supplyChain     *string
+	authAudit       *bool
+	discover        *bool
 	timeout         *time.Duration
 	fuzz            *bool
 	fuzzTimeout     *time.Duration
@@ -169,6 +178,10 @@ func declareFlags() cliFlags {
 		targets:         flag.String("targets", "", "Batch mode targets JSON file"),
 		snapshotSave:    flag.String("snapshot-save", "", "Save an approved-tool fingerprint snapshot"),
 		snapshotCompare: flag.String("snapshot-compare", "", "Compare the server against a snapshot"),
+		sourcePath:      flag.String("source", "", "Source tree to scan for dangerous sinks and secrets"),
+		supplyChain:     flag.String("supply-chain", "", "Project path with manifests to audit dependencies"),
+		authAudit:       flag.Bool("auth-audit", false, "Probe OAuth metadata, PKCE and token validation"),
+		discover:        flag.Bool("discover", false, "Discover MCP servers configured on this machine"),
 		timeout:         flag.Duration("timeout", 30*time.Second, "Total audit timeout"),
 		fuzz:            flag.Bool("fuzz", false, "Run dynamic fuzzing to confirm findings"),
 		fuzzTimeout:     flag.Duration("fuzz-timeout", 10*time.Second, "Per-probe fuzz timeout"),
@@ -217,6 +230,10 @@ func (f cliFlags) buildConfig() app.Config {
 		TargetsFile:     *f.targets,
 		SnapshotSave:    *f.snapshotSave,
 		SnapshotCompare: *f.snapshotCompare,
+		SourcePath:      *f.sourcePath,
+		SupplyChainPath: *f.supplyChain,
+		AuthAudit:       *f.authAudit,
+		Discover:        *f.discover,
 		Timeout:         *f.timeout,
 		Fuzz:            *f.fuzz,
 		FuzzTimeout:     *f.fuzzTimeout,

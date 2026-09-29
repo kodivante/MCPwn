@@ -25,7 +25,11 @@ That night, the first version of MCPwn was written. It grew into a full suite: t
 ## Key Features
 
 - **Protocol-native discovery**: full MCP handshake (`initialize`/`initialized`) over stdio, SSE or Streamable HTTP, including `tools/call`, `resources/list`, `resources/read`, `prompts/list` and `prompts/get`.
-- **13 static security rules**: command injection, path traversal, SSRF, credential leaks, SQL injection, denial of service, state mutation, tool poisoning, IDOR, mass assignment, weak typing, missing required fields, context over-sharing and prompt injection sinks.
+- **17 static security rules**: command injection, path traversal, SSRF, credential leaks, SQL injection, denial of service, state mutation, tool poisoning, IDOR, mass assignment, weak typing, missing required fields, context over-sharing, template injection, unsafe deserialization, prototype pollution and NoSQL injection.
+- **Source code analysis** (`-source`): pure-Go scanner over Python/JS/TS trees flagging dangerous sinks (`os.system`, `eval`, `pickle.loads`, `yaml.load` without SafeLoader), hardcoded secrets and deserialization traps with file:line evidence — runs standalone on repos in CI.
+- **Supply chain auditing** (`-supply-chain`): parses `requirements.txt`, `package.json` and `go.mod`, queries the OSV.dev vulnerability database live, flags typosquats (Damerau-Levenshtein distance 1 from popular packages) and unpinned dependencies.
+- **OAuth authorization auditing** (`-auth-audit`): follows 401 challenges into OAuth metadata, verifies S256 PKCE advertisement, detects missing RFC 9728 metadata and bearer token passthrough acceptance.
+- **Shadow MCP discovery** (`-discover`): inventories every MCP server configured on the machine (Claude Desktop, Claude Code, Cursor, VS Code, `.mcp.json`) with local-stdio/local-http/remote classification.
 - **Deep dynamic testing suite** (`-deep`): eighteen engines — path traversal prober, SSRF canary, schema pollution probe, lifecycle desync, protocol fuzzer, race prober, exhaustion probe, tool rug-pull detector, token leak scanner, sampling abuse probe, side-channel detector, resource traversal prober, prompt template auditor, HTTP threat engine, elicitation abuse probe and client roots probe.
 - **OWASP MCP Top 10 mapping**: every finding carries its `MCPxx:2025` tag in JSON, SARIF and HTML, plus a coverage matrix of all ten risks in every HTML report.
 - **Batch fleet auditing** (`-targets`): audit every MCP server in your organization from one JSON file, with per-target reports and a consolidated inventory.
@@ -152,6 +156,10 @@ mcpwn -targets=targets.json -deep -outdir=reports -file=inventory.json
 | `-outdir` | — | Directory for per-target reports in batch mode |
 | `-snapshot-save` | — | Save an approved-tool fingerprint snapshot to the given path |
 | `-snapshot-compare` | — | Compare the current server against a snapshot and report drift |
+| `-source` | — | Path to the MCP server source tree to scan for sinks and secrets |
+| `-supply-chain` | — | Path to the server project with manifests to audit dependencies |
+| `-auth-audit` | `false` | Probe OAuth metadata, PKCE and token validation on HTTP transport |
+| `-discover` | `false` | Inventory MCP servers configured on this machine and exit |
 | `-version` | — | Print version and exit |
 
 **Exit codes**: `0` when no CRITICAL or HIGH findings, `1` otherwise. Any operational error also exits `1` with a message on stderr.
@@ -173,6 +181,11 @@ mcpwn -targets=targets.json -deep -outdir=reports -file=inventory.json
 | `Dos01` | MEDIUM | File reading tools without bounding parameters (limit, maxLines) |
 | `MassAssignment01` | MEDIUM | Object schemas allowing undeclared properties |
 | `PromptInjection01` | MEDIUM | Parameters feeding user-controlled text into the model (with `-prompt-inject`) |
+| `ContextSharing01` | MEDIUM | Tool metadata exposing secret file markers (`.env`, `id_rsa`) that encourage over-sharing |
+| `TemplateInjection01` | MEDIUM | Template parameters feeding render engines without sandboxing |
+| `PrototypePollution01` | MEDIUM | Object parameters merged into targets (`__proto__`, `constructor` sinks) |
+| `NoSqlInjection01` | MEDIUM | Query/filter parameters building NoSQL documents without operator allowlists |
+| `UnsafeDeserialization01` | HIGH | Tools advertising deserialization of caller-supplied data (pickle, yaml.load) |
 | `WeakTyping01` | LOW | Parameters without an explicit type |
 | `MissingRequired01` | LOW | Critical parameters missing from the required array |
 
@@ -222,6 +235,7 @@ Fifteen engines, every one safe by default. `-deep` enables them all; `-quick` s
 | Resource traversal prober | `-restraverse` | `ResourceTraversal01` (HIGH) | Full MCP Resources coverage: probes `resources/read` URIs with marker files outside the resource root |
 | Prompt template auditor | `-prompt-audit` | `PromptPoisoning01` (HIGH/CRITICAL) | Full MCP Prompts coverage: `prompts/list` and `prompts/get` templates scanned for role manipulation (`ignore previous instructions`) and exfiltration directives (URLs, webhooks, upload targets) |
 | HTTP threat engine | `-http-probe` | `HttpAuthBypass01`, `HttpSession01`, `HttpOrigin01`, `HttpBatch01` | Streamable HTTP attacks: unauthenticated sessions, invalid `Mcp-Session-Id` acceptance, foreign Origin tolerance (CSRF/DNS-rebinding surface) and JSON-RPC batch permissiveness |
+| OAuth auditor | `-auth-audit` | `OAuthMetadata01`, `OAuthPkce01`, `TokenPassthrough01` | Follows 401 challenges into OAuth metadata: missing RFC 9728 metadata, absent S256 PKCE advertisement, and fabricated bearer tokens accepted by the server |
 | Elicitation abuse probe | `-elicitation` | `ElicitationAbuse01` (MEDIUM) | Server accepting `elicitation/create` can phish users through fake client-side dialogs |
 | Client roots probe | `-roots` | `RootsProbe01` (MEDIUM) | Server accepting `roots/list` can enumerate the client filesystem scope |
 | Attack-chain analyzer | always on | `AttackChain01` (HIGH/CRITICAL) | Links findings into exploitation paths: RCE + credential leak becomes full host takeover; SSRF + token leak becomes lateral movement — each chain reports its links with evidence |
@@ -300,6 +314,27 @@ mcpwn -targets=targets.json -deep -outdir=reports -file=inventory.json
 ```
 
 Each target gets its own grade line in the terminal, a full JSON report in `-outdir`, and `-file` receives the consolidated inventory. `-timeout` applies per target. The exit code is 1 when any target has CRITICAL or HIGH findings.
+
+---
+
+## Source and Supply Chain Analysis
+
+Audit the code and dependencies behind the server, not just its protocol surface:
+
+```bash
+mcpwn -source=path/to/server -supply-chain=path/to/server -output=json -file=code.json
+```
+
+- **`-source`**: walks Python/JS/TS trees (skipping `node_modules`, `venv`, `dist`) and reports `SourceExec01` (`os.system`, `subprocess`, `eval`, `child_process`), `SourceDeserialization01` (`pickle.loads`, `yaml.load` without SafeLoader, `node-serialize`) and `SourceSecret01` (API keys, AWS keys, private keys) with file:line evidence. Standalone mode runs in CI without a live server: `mcpwn -source=.`.
+- **`-supply-chain`**: parses `requirements.txt`, `package.json` and `go.mod`, queries OSV.dev live for known vulnerabilities (`DependencyVuln01`, HIGH with real GHSA/PYSEC identifiers), flags typosquats (`Typosquat01` — Damerau-Levenshtein distance 1 from popular packages) and unpinned dependencies (`UnpinnedDep01`).
+
+**Shadow MCP discovery** — inventory every MCP server configured on the machine:
+
+```bash
+mcpwn -discover
+```
+
+Scans Claude Desktop, Claude Code, Cursor, VS Code and `.mcp.json` locations, classifies each server as local-stdio, local-http or remote, and exports JSON with `-output=json -file=inventory.json`.
 
 ---
 

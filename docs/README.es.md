@@ -25,7 +25,11 @@ Esa noche se escribió la primera versión de MCPwn. Creció hasta ser una suite
 ## Características Principales
 
 - **Descubrimiento nativo del protocolo**: handshake MCP completo (`initialize`/`initialized`) vía stdio, SSE o Streamable HTTP, incluyendo `tools/call`, `resources/list`, `resources/read`, `prompts/list` y `prompts/get`.
-- **13 reglas de seguridad estáticas**: inyección de comandos, path traversal, SSRF, fuga de credenciales, inyección SQL, denegación de servicio, mutación de estado, tool poisoning, IDOR, mass assignment, tipado débil, campos requeridos faltantes, over-sharing de contexto y sinks de prompt injection.
+- **17 reglas de seguridad estáticas**: inyección de comandos, path traversal, SSRF, fuga de credenciales, inyección SQL, denegación de servicio, mutación de estado, tool poisoning, IDOR, mass assignment, tipado débil, campos requeridos faltantes, over-sharing de contexto, template injection, deserialización insegura, prototype pollution e inyección NoSQL.
+- **Análisis de código fuente** (`-source`): scanner puro-Go sobre árboles Python/JS/TS que marca sinks peligrosos (`os.system`, `eval`, `pickle.loads`, `yaml.load` sin SafeLoader), secretos hardcodeados y trampas de deserialización con evidencia archivo:línea — corre standalone en CI.
+- **Auditoría de supply chain** (`-supply-chain`): parsea `requirements.txt`, `package.json` y `go.mod`, consulta la base de vulnerabilidades OSV.dev en vivo, marca typosquats (distancia Damerau-Levenshtein 1 de paquetes populares) y dependencias sin pinchar.
+- **Auditoría de autorización OAuth** (`-auth-audit`): sigue los challenges 401 hasta los metadatos OAuth, verifica el anuncio de PKCE S256, detecta metadatos RFC 9728 faltantes y aceptación de tokens bearer fabricados.
+- **Discovery de MCPs shadow** (`-discover`): inventaría cada servidor MCP configurado en la máquina (Claude Desktop, Claude Code, Cursor, VS Code, `.mcp.json`) con clasificación local-stdio/local-http/remoto.
 - **Suite de testing dinámico profundo** (`-deep`): dieciocho motores — prober de traversal, canary SSRF, sonda de schema pollution, desync de lifecycle, fuzzer de protocolo, prober de race conditions, sonda de agotamiento, detector de rug-pull, escáner de token leaks, sonda de sampling, detector de side-channels, prober de resource traversal, auditor de prompt templates, motor de amenazas HTTP, sonda de elicitation y sonda de roots del cliente.
 - **Mapping OWASP MCP Top 10**: cada hallazgo lleva su tag `MCPxx:2025` en JSON, SARIF y HTML, más una matriz de cobertura de los diez riesgos en cada reporte HTML.
 - **Auditoría de flotas** (`-targets`): audita todos los servidores MCP de la organización desde un solo archivo JSON, con reportes por objetivo e inventario consolidado.
@@ -152,6 +156,10 @@ mcpwn -targets=targets.json -deep -outdir=reports -file=inventory.json
 | `-outdir` | — | Directorio para reportes por objetivo en modo batch |
 | `-snapshot-save` | — | Guarda un snapshot de fingerprints de tools aprobadas |
 | `-snapshot-compare` | — | Compara el servidor contra un snapshot y reporta el drift |
+| `-source` | — | Ruta del árbol de código fuente del servidor a escanear |
+| `-supply-chain` | — | Ruta del proyecto con manifests para auditar dependencias |
+| `-auth-audit` | `false` | Sondea metadatos OAuth, PKCE y validación de tokens en HTTP |
+| `-discover` | `false` | Inventaría los servidores MCP configurados en esta máquina |
 | `-version` | — | Imprimir la versión y salir |
 
 **Códigos de salida**: `0` sin hallazgos CRITICAL ni HIGH, `1` en cualquier otro caso. Cualquier error operativo también sale con `1` y mensaje en stderr.
@@ -300,6 +308,27 @@ mcpwn -targets=targets.json -deep -outdir=reports -file=inventory.json
 ```
 
 Cada objetivo recibe su línea de grado en el terminal, un reporte JSON completo en `-outdir`, y `-file` recibe el inventario consolidado. `-timeout` aplica por objetivo. El exit code es 1 cuando cualquier objetivo tiene hallazgos CRITICAL o HIGH.
+
+---
+
+## Análisis de Código y Supply Chain
+
+Audita el código y las dependencias detrás del servidor, no solo su superficie de protocolo:
+
+```bash
+mcpwn -source=ruta/al/servidor -supply-chain=ruta/al/servidor -output=json -file=code.json
+```
+
+- **`-source`**: recorre árboles Python/JS/TS (saltando `node_modules`, `venv`, `dist`) y reporta `SourceExec01` (`os.system`, `subprocess`, `eval`, `child_process`), `SourceDeserialization01` (`pickle.loads`, `yaml.load` sin SafeLoader, `node-serialize`) y `SourceSecret01` (API keys, claves AWS, private keys) con evidencia archivo:línea. El modo standalone corre en CI sin servidor vivo: `mcpwn -source=.`.
+- **`-supply-chain`**: parsea `requirements.txt`, `package.json` y `go.mod`, consulta OSV.dev en vivo por vulnerabilidades conocidas (`DependencyVuln01`, HIGH con identificadores GHSA/PYSEC reales), marca typosquats (`Typosquat01` — distancia Damerau-Levenshtein 1 de paquetes populares) y dependencias sin pinchar (`UnpinnedDep01`).
+
+**Discovery de MCPs shadow** — inventaría cada servidor MCP configurado en la máquina:
+
+```bash
+mcpwn -discover
+```
+
+Escanea las ubicaciones de Claude Desktop, Claude Code, Cursor, VS Code y `.mcp.json`, clasifica cada servidor como local-stdio, local-http o remoto, y exporta JSON con `-output=json -file=inventory.json`.
 
 ---
 

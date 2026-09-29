@@ -60,7 +60,10 @@ func TestCoverageSummaryHasStatuses(t *testing.T) {
 	for _, item := range coverage {
 		statuses[item.Status] = true
 	}
-	if !statuses["covered"] || !statuses["planned"] || !statuses["partial"] {
-		t.Errorf("expected covered, planned and partial statuses, got %+v", statuses)
+	if !statuses["covered"] || !statuses["partial"] {
+		t.Errorf("expected covered and partial statuses, got %+v", statuses)
+	}
+	if statuses["planned"] {
+		t.Error("no risk may remain in planned state after the Depth release")
 	}
 }

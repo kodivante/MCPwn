@@ -59,6 +59,10 @@ func NewEngine() *Engine {
 			&WeakTypingRule{},
 			&MissingRequiredRule{},
 			&ContextSharingRule{},
+			&TemplateInjectionRule{},
+			&UnsafeDeserializationRule{},
+			&PrototypePollutionRule{},
+			&NoSqlInjectionRule{},
 		},
 	}
 }

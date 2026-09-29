@@ -14,6 +14,8 @@ import (
 	"github.com/kodivante/MCPwn/v3/internal/promptinject"
 	"github.com/kodivante/MCPwn/v3/internal/schema"
 	"github.com/kodivante/MCPwn/v3/internal/snapshot"
+	"github.com/kodivante/MCPwn/v3/internal/sourcescan"
+	"github.com/kodivante/MCPwn/v3/internal/supplychain"
 )
 
 type Config struct {
@@ -29,6 +31,10 @@ type Config struct {
 	TargetsFile     string
 	SnapshotSave    string
 	SnapshotCompare string
+	SupplyChainPath string
+	SourcePath      string
+	AuthAudit       bool
+	Discover        bool
 	Timeout         time.Duration
 	Fuzz            bool
 	FuzzTimeout     time.Duration
@@ -129,6 +135,11 @@ func collectFindings(ctx context.Context, connectFactory transportFactory, sessi
 		findings = append(findings, promptEngine.ProbeTools(tools)...)
 	}
 	findings = runDeepProbes(ctx, connectFactory, session, tools, findings, cfg)
+	localFindings, localErr := localScanFindings(cfg)
+	if localErr != nil {
+		return nil, artifacts, localErr
+	}
+	findings = append(findings, localFindings...)
 	if err := runSnapshotWorkflow(session, tools, &findings, &artifacts, cfg); err != nil {
 		return nil, artifacts, err
 	}
@@ -138,6 +149,26 @@ func collectFindings(ctx context.Context, connectFactory transportFactory, sessi
 	findings = attackchain.NewDetector().Analyze(findings)
 	applyConfidence(findings)
 	return findings, artifacts, nil
+}
+
+func localScanFindings(cfg Config) ([]auditor.Finding, error) {
+	var findings []auditor.Finding
+	if cfg.SourcePath != "" {
+		sourceFindings, err := sourcescan.ScanTree(cfg.SourcePath)
+		if err != nil {
+			return nil, fmt.Errorf("source scan failed: %w", err)
+		}
+		findings = append(findings, sourceFindings...)
+	}
+	if cfg.SupplyChainPath != "" {
+		engine := supplychain.NewEngine(supplychain.Options{})
+		supplyFindings, err := engine.Audit(cfg.SupplyChainPath)
+		if err != nil {
+			return nil, fmt.Errorf("supply chain audit failed: %w", err)
+		}
+		findings = append(findings, supplyFindings...)
+	}
+	return findings, nil
 }
 
 func runSnapshotWorkflow(session *client.Session, tools []schema.Tool, findings *[]auditor.Finding, artifacts *auditArtifacts, cfg Config) error {

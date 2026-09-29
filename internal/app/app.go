@@ -8,51 +8,61 @@ import (
 
 	"github.com/kodivante/MCPwn/v3/internal/attackchain"
 	"github.com/kodivante/MCPwn/v3/internal/auditor"
+	"github.com/kodivante/MCPwn/v3/internal/capability"
 	"github.com/kodivante/MCPwn/v3/internal/client"
+	"github.com/kodivante/MCPwn/v3/internal/graph"
 	"github.com/kodivante/MCPwn/v3/internal/promptinject"
 	"github.com/kodivante/MCPwn/v3/internal/schema"
+	"github.com/kodivante/MCPwn/v3/internal/snapshot"
 )
 
 type Config struct {
-	TransportType string
-	Command       string
-	Args          []string
-	URL           string
-	AuthHeader    string
-	OutputFormat  string
-	OutputFile    string
-	OutDirectory  string
-	RecordPath    string
-	TargetsFile   string
-	Timeout       time.Duration
-	Fuzz          bool
-	FuzzTimeout   time.Duration
-	PromptInject  bool
-	GenPoC        bool
-	PoCLang       string
-	PoCDirectory  string
-	Payloads      string
-	Watch         bool
-	WatchInterval time.Duration
-	DiffFile      string
-	Deep          bool
-	Quick         bool
-	Traversal     bool
-	SSRF          bool
-	Pollute       bool
-	Desync        bool
-	ProtoFuzz     bool
-	RaceProbe     bool
-	Exhaust       bool
-	RugPull       bool
-	TokenLeak     bool
-	Sampling      bool
-	SideChannel   bool
-	ResTraversal  bool
-	PromptAudit   bool
-	HttpThreat    bool
-	Elicitation   bool
-	Roots         bool
+	TransportType   string
+	Command         string
+	Args            []string
+	URL             string
+	AuthHeader      string
+	OutputFormat    string
+	OutputFile      string
+	OutDirectory    string
+	RecordPath      string
+	TargetsFile     string
+	SnapshotSave    string
+	SnapshotCompare string
+	Timeout         time.Duration
+	Fuzz            bool
+	FuzzTimeout     time.Duration
+	PromptInject    bool
+	GenPoC          bool
+	PoCLang         string
+	PoCDirectory    string
+	Payloads        string
+	Watch           bool
+	WatchInterval   time.Duration
+	DiffFile        string
+	Deep            bool
+	Quick           bool
+	Traversal       bool
+	SSRF            bool
+	Pollute         bool
+	Desync          bool
+	ProtoFuzz       bool
+	RaceProbe       bool
+	Exhaust         bool
+	RugPull         bool
+	TokenLeak       bool
+	Sampling        bool
+	SideChannel     bool
+	ResTraversal    bool
+	PromptAudit     bool
+	HttpThreat      bool
+	Elicitation     bool
+	Roots           bool
+}
+
+type auditArtifacts struct {
+	profiles    []capability.ToolCapability
+	entityGraph graph.Graph
 }
 
 type transportFactory func(ctx context.Context, cfg Config) (client.Transport, error)
@@ -66,17 +76,17 @@ func runWith(ctx context.Context, cfg Config, connectFactory transportFactory) (
 	if cfg.Watch {
 		return watchLoop(ctx, cfg, connectFactory)
 	}
-	findings, err := auditOnce(ctx, cfg, connectFactory)
+	findings, artifacts, err := auditOnce(ctx, cfg, connectFactory)
 	if err != nil {
 		return 1, err
 	}
-	return finalizeFindings(findings, cfg)
+	return finalizeFindings(findings, artifacts, cfg)
 }
 
-func auditOnce(ctx context.Context, cfg Config, connectFactory transportFactory) (findings []auditor.Finding, err error) {
+func auditOnce(ctx context.Context, cfg Config, connectFactory transportFactory) (findings []auditor.Finding, artifacts auditArtifacts, err error) {
 	transport, err := connectFactory(ctx, cfg)
 	if err != nil {
-		return nil, err
+		return nil, artifacts, err
 	}
 	defer func() {
 		if closeErr := transport.Close(); closeErr != nil && err == nil {
@@ -85,7 +95,7 @@ func auditOnce(ctx context.Context, cfg Config, connectFactory transportFactory)
 	}()
 	wrapped, wrapErr := withRecorder(transport, cfg)
 	if wrapErr != nil {
-		return nil, wrapErr
+		return nil, artifacts, wrapErr
 	}
 	if wrapped != nil {
 		transport = wrapped
@@ -95,21 +105,22 @@ func auditOnce(ctx context.Context, cfg Config, connectFactory transportFactory)
 		session.SetRequestTimeout(cfg.FuzzTimeout)
 	}
 	if err = session.Initialize(); err != nil {
-		return nil, err
+		return nil, artifacts, err
 	}
 	var tools []schema.Tool
 	if tools, err = session.ListTools(); err != nil {
-		return nil, err
+		return nil, artifacts, err
 	}
 	findings = audit(tools, cfg)
 	return collectFindings(ctx, connectFactory, session, tools, findings, cfg)
 }
 
-func collectFindings(ctx context.Context, connectFactory transportFactory, session *client.Session, tools []schema.Tool, findings []auditor.Finding, cfg Config) ([]auditor.Finding, error) {
+func collectFindings(ctx context.Context, connectFactory transportFactory, session *client.Session, tools []schema.Tool, findings []auditor.Finding, cfg Config) ([]auditor.Finding, auditArtifacts, error) {
+	artifacts := auditArtifacts{}
 	if cfg.Fuzz {
 		fuzzEngine, fuzzErr := newFuzzEngine(session, cfg)
 		if fuzzErr != nil {
-			return nil, fuzzErr
+			return nil, artifacts, fuzzErr
 		}
 		findings = fuzzEngine.ConfirmFindings(findings)
 	}
@@ -118,12 +129,41 @@ func collectFindings(ctx context.Context, connectFactory transportFactory, sessi
 		findings = append(findings, promptEngine.ProbeTools(tools)...)
 	}
 	findings = runDeepProbes(ctx, connectFactory, session, tools, findings, cfg)
+	if err := runSnapshotWorkflow(session, tools, &findings, &artifacts, cfg); err != nil {
+		return nil, artifacts, err
+	}
+	artifacts.profiles = capability.Profile(tools)
+	artifacts.entityGraph = graph.BuildGraph(tools, artifacts.profiles, findings)
+	findings = append(findings, artifacts.entityGraph.DetectChains(artifacts.profiles, findings)...)
+	findings = attackchain.NewDetector().Analyze(findings)
 	applyConfidence(findings)
-	return attackchain.NewDetector().Analyze(findings), nil
+	return findings, artifacts, nil
 }
 
-func finalizeFindings(findings []auditor.Finding, cfg Config) (int, error) {
-	if err := render(findings, cfg); err != nil {
+func runSnapshotWorkflow(session *client.Session, tools []schema.Tool, findings *[]auditor.Finding, artifacts *auditArtifacts, cfg Config) error {
+	if cfg.SnapshotSave == "" && cfg.SnapshotCompare == "" {
+		return nil
+	}
+	profiles := capability.Profile(tools)
+	if cfg.SnapshotSave != "" {
+		shapes := snapshot.CollectShapes(session, tools)
+		if err := snapshot.Save(cfg.SnapshotSave, tools, profiles, shapes); err != nil {
+			return fmt.Errorf("snapshot save failed: %w", err)
+		}
+	}
+	if cfg.SnapshotCompare != "" {
+		drift, err := snapshot.Compare(cfg.SnapshotCompare, session, tools, profiles)
+		if err != nil {
+			return fmt.Errorf("snapshot compare failed: %w", err)
+		}
+		*findings = append(*findings, drift...)
+	}
+	artifacts.profiles = profiles
+	return nil
+}
+
+func finalizeFindings(findings []auditor.Finding, artifacts auditArtifacts, cfg Config) (int, error) {
+	if err := render(findings, artifacts, cfg); err != nil {
 		return 1, err
 	}
 	if cfg.DiffFile != "" {

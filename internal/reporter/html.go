@@ -8,6 +8,7 @@ import (
 
 	"github.com/kodivante/MCPwn/v3/internal/auditor"
 	"github.com/kodivante/MCPwn/v3/internal/owasp"
+	"github.com/kodivante/MCPwn/v3/internal/risk"
 	"github.com/kodivante/MCPwn/v3/internal/version"
 )
 
@@ -45,6 +46,8 @@ type htmlReport struct {
 	GeneratedAt   string
 	Total         int
 	Confirmed     int
+	RiskIndex     int
+	RiskGrade     string
 	CountCritical int
 	CountHigh     int
 	CountMedium   int
@@ -83,6 +86,9 @@ func buildHTMLReport(findings []auditor.Finding) htmlReport {
 		Sections:    sections,
 		Owasp:       buildOwaspRows(findings),
 	}
+	riskIndex := risk.ServerIndex(findings)
+	report.RiskIndex = riskIndex.Index
+	report.RiskGrade = riskIndex.Grade
 	report.CountCritical = sectionCount(sections, auditor.SeverityCritical)
 	report.CountHigh = sectionCount(sections, auditor.SeverityHigh)
 	report.CountMedium = sectionCount(sections, auditor.SeverityMedium)

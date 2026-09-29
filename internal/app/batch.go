@@ -10,6 +10,7 @@ import (
 
 	"github.com/kodivante/MCPwn/v3/internal/auditor"
 	"github.com/kodivante/MCPwn/v3/internal/reporter"
+	"github.com/kodivante/MCPwn/v3/internal/risk"
 	"github.com/kodivante/MCPwn/v3/internal/scorer"
 )
 
@@ -23,15 +24,16 @@ type Target struct {
 }
 
 type TargetResult struct {
-	Name     string `json:"name"`
-	Grade    string `json:"grade"`
-	Findings int    `json:"findings"`
-	Critical int    `json:"critical"`
-	High     int    `json:"high"`
-	Medium   int    `json:"medium"`
-	Low      int    `json:"low"`
-	ExitCode int    `json:"exitCode"`
-	Error    string `json:"error,omitempty"`
+	Name      string `json:"name"`
+	Grade     string `json:"grade"`
+	RiskIndex int    `json:"riskIndex"`
+	Findings  int    `json:"findings"`
+	Critical  int    `json:"critical"`
+	High      int    `json:"high"`
+	Medium    int    `json:"medium"`
+	Low       int    `json:"low"`
+	ExitCode  int    `json:"exitCode"`
+	Error     string `json:"error,omitempty"`
 }
 
 func RunBatch(ctx context.Context, cfg Config) (int, error) {
@@ -71,7 +73,7 @@ func runBatchTarget(ctx context.Context, cfg Config, target Target, connectFacto
 		runCtx, cancel = context.WithTimeout(ctx, targetCfg.Timeout)
 		defer cancel()
 	}
-	findings, err := auditOnce(runCtx, targetCfg, connectFactory)
+	findings, _, err := auditOnce(runCtx, targetCfg, connectFactory)
 	if err != nil {
 		return TargetResult{Name: target.Name, ExitCode: 1, Error: err.Error()}
 	}
@@ -102,14 +104,15 @@ func targetConfig(cfg Config, target Target) Config {
 func summarizeTarget(name string, findings []auditor.Finding) TargetResult {
 	score := scorer.Calculate(findings)
 	return TargetResult{
-		Name:     name,
-		Grade:    string(score.Grade),
-		Findings: score.Total,
-		Critical: score.Critical,
-		High:     score.High,
-		Medium:   score.Medium,
-		Low:      score.Low,
-		ExitCode: exitCode(findings),
+		Name:      name,
+		Grade:     string(score.Grade),
+		RiskIndex: risk.ServerIndex(findings).Index,
+		Findings:  score.Total,
+		Critical:  score.Critical,
+		High:      score.High,
+		Medium:    score.Medium,
+		Low:       score.Low,
+		ExitCode:  exitCode(findings),
 	}
 }
 
@@ -135,8 +138,8 @@ func printTargetResult(result TargetResult) {
 		fmt.Printf("%-24s error: %s\n", result.Name, result.Error)
 		return
 	}
-	fmt.Printf("%-24s grade=%s critical=%d high=%d medium=%d low=%d findings=%d\n",
-		result.Name, result.Grade, result.Critical, result.High, result.Medium, result.Low, result.Findings)
+	fmt.Printf("%-24s grade=%s risk=%d critical=%d high=%d medium=%d low=%d findings=%d\n",
+		result.Name, result.Grade, result.RiskIndex, result.Critical, result.High, result.Medium, result.Low, result.Findings)
 }
 
 func writeTargetReport(cfg Config, name string, findings []auditor.Finding) error {

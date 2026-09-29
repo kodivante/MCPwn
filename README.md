@@ -30,6 +30,9 @@ That night, the first version of MCPwn was written. It grew into a full suite: t
 - **OWASP MCP Top 10 mapping**: every finding carries its `MCPxx:2025` tag in JSON, SARIF and HTML, plus a coverage matrix of all ten risks in every HTML report.
 - **Batch fleet auditing** (`-targets`): audit every MCP server in your organization from one JSON file, with per-target reports and a consolidated inventory.
 - **Attack-chain analysis**: always-on post-analysis that links findings into exploitation paths (RCE + credential leak, SSRF + token leak, prompt injection + SSRF) and reports the full chain with evidence.
+- **Entity attack graph**: every tool gets a capability profile (exec, filesystem, network, database, state, credentials) that feeds a knowledge graph — serialized with `-output=graph` — powering multi-hop chain detection (`AttackChain02`) and per-tool reach queries.
+- **Risk Index 0-100**: severity, confirmation and confidence weighted per finding, with chain amplification and density bonuses — a numeric verdict beyond simple counts, surfaced in terminal, HTML and batch inventories.
+- **Approval snapshots**: `-snapshot-save` freezes approved tool fingerprints and response shapes; `-snapshot-compare` reports `ToolDrift01` (description, schema, tool additions/removals) and `BehaviorDrift01` (response structure changes) — rug pulls detected across runs and days, not just sessions.
 - **Per-finding confidence**: every finding carries a 0-100 `Confidence` score — confirmed-with-evidence findings score 95, static detections 70 — enabling near-zero false positive CI gates.
 - **Full transcripts** (`-record`): every JSON-RPC request and response logged as timestamped JSONL for complete reproducibility.
 - **Dynamic fuzzing engine**: confirms command injection findings by sending benign payloads (echo with a unique marker, controlled sleep, self-deleting temp file) with a strict hardcoded deny-list.
@@ -114,7 +117,7 @@ mcpwn -targets=targets.json -deep -outdir=reports -file=inventory.json
 | `-args` | — | Command arguments, comma separated |
 | `-url` | — | URL for SSE/HTTP transports |
 | `-auth-header` | — | `Authorization` header value for HTTP transport (e.g. `Bearer token`) |
-| `-output` | `terminal` | Output format: `terminal`, `json`, `sarif`, `html`, `badge` |
+| `-output` | `terminal` | Output format: `terminal`, `json`, `sarif`, `html`, `badge`, `graph` |
 | `-file` | — | Write output to file instead of stdout |
 | `-timeout` | `30s` | Per-audit timeout |
 | `-fuzz` | `false` | Run dynamic fuzzing to confirm command injection findings |
@@ -147,6 +150,8 @@ mcpwn -targets=targets.json -deep -outdir=reports -file=inventory.json
 | `-record` | — | Save a JSONL transcript of every JSON-RPC message |
 | `-targets` | — | Batch mode: JSON file with an array of targets to audit |
 | `-outdir` | — | Directory for per-target reports in batch mode |
+| `-snapshot-save` | — | Save an approved-tool fingerprint snapshot to the given path |
+| `-snapshot-compare` | — | Compare the current server against a snapshot and report drift |
 | `-version` | — | Print version and exit |
 
 **Exit codes**: `0` when no CRITICAL or HIGH findings, `1` otherwise. Any operational error also exits `1` with a message on stderr.
@@ -220,6 +225,7 @@ Fifteen engines, every one safe by default. `-deep` enables them all; `-quick` s
 | Elicitation abuse probe | `-elicitation` | `ElicitationAbuse01` (MEDIUM) | Server accepting `elicitation/create` can phish users through fake client-side dialogs |
 | Client roots probe | `-roots` | `RootsProbe01` (MEDIUM) | Server accepting `roots/list` can enumerate the client filesystem scope |
 | Attack-chain analyzer | always on | `AttackChain01` (HIGH/CRITICAL) | Links findings into exploitation paths: RCE + credential leak becomes full host takeover; SSRF + token leak becomes lateral movement — each chain reports its links with evidence |
+| Multi-hop graph analyzer | always on | `AttackChain02` (HIGH/CRITICAL) | Walks the capability graph in three hops: exec + credentials + network becomes a complete exfiltration pipeline, filesystem + credentials becomes secret harvesting, network + exec becomes remote takeover |
 | Dynamic fuzzer | `-fuzz` | Confirms `CmdInjection01` | Benign echo/sleep/temp-file payloads with a strict deny-list (`rm`, `curl`, `wget`, `nc`, `ssh`, `sudo` are hardcoded-rejected) |
 | Prompt injection simulator | `-prompt-inject` | `PromptInjection01` | Three fixed benign payloads classified as full or partial reflection |
 
@@ -247,6 +253,34 @@ Every finding is mapped to the official [OWASP Top 10 for MCP](https://owasp.org
 | `MCP10:2025` | Context Injection & Over-Sharing | `PathTraversal01`, `ResourceTraversal01`, `ContextSharing01` |
 
 HTML reports include the full coverage matrix with per-risk finding counts.
+
+---
+
+## Risk Engine and Attack Graph
+
+Beyond counting severities, MCPwn scores every finding 0-100 by weighting severity, confirmation and confidence, then amplifies chains and dense clusters into a server-level **Risk Index**:
+
+```
+Security Score: D  |  1 CRITICAL  1 HIGH  3 MEDIUM  0 LOW
+Risk Index: 78/100 (D)  |  chains: 3
+```
+
+Every tool is profiled into capabilities (exec, filesystem, network, database, state, credentials) and connected into an entity graph. The graph drives multi-hop chain detection and answers reachability questions; export it with:
+
+```bash
+mcpwn -transport=stdio -command=npx -args=-y,@modelcontextprotocol/server-filesystem,/tmp -deep -output=graph -file=graph.json
+```
+
+The graph report contains the risk index, all nodes and edges, per-tool reach and every detected chain path.
+
+**Approval workflow**: freeze a reviewed server and detect drift on every future audit:
+
+```bash
+mcpwn ... -snapshot-save=approved.json
+mcpwn ... -snapshot-compare=approved.json
+```
+
+`ToolDrift01` fires on description changes (HIGH - rug-pull signal), schema changes (MEDIUM) and tool additions/removals; `BehaviorDrift01` fires when a tool's response structure changes since approval.
 
 ---
 

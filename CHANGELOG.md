@@ -2,6 +2,19 @@
 
 All notable releases of MCPwn are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [3.17.0] - 2026-09-29
+
+The Graph release: an entity attack graph, multi-hop chain detection, a chain-aware risk index and approval snapshots with drift detection.
+
+### Added
+- Capability profiling (`internal/capability`): every tool is classified into exec, filesystem, network, database, state, credentials, prompt and resource capabilities from its schema, parameters and description.
+- Entity attack graph (`internal/graph`): tools and capabilities become nodes connected by reach edges; `ReachFrom` answers what each tool can reach and the new `-output=graph` format exports the risk index, nodes, edges, per-tool reach and every detected chain path as JSON.
+- Multi-hop chain detection (`AttackChain02`): the graph analyzer walks three-hop exploitation paths — exec + credentials + network becomes a complete exfiltration pipeline (CRITICAL when all anchors are confirmed), filesystem + credentials becomes secret harvesting, network + exec becomes remote takeover, database + credentials becomes structured data theft, and state + exec enables persistence. Severity downgrades when anchor evidence is only static.
+- Risk engine (`internal/risk`): every finding scored 0-100 from severity, confirmation and confidence, with chain amplification and density bonuses rolling into a server-level Risk Index (0-100, grades A-F) surfaced in terminal, HTML and batch inventories. Grade F is reserved for critical-level risk.
+- Approval snapshots (`-snapshot-save`, `-snapshot-compare`): tool fingerprints (SHA-256 of description, schema and capabilities) plus response shape hashes freeze an approved state; comparing reports `ToolDrift01` — description changes (HIGH, rug-pull signal), schema changes (MEDIUM), tool additions (LOW) and removals (MEDIUM) — and `BehaviorDrift01` (MEDIUM, confirmed) when a tool's response structure changes after approval. Rug pulls are now detectable across runs and days, not just between live sessions.
+- Batch inventories now carry the per-target Risk Index alongside the grade.
+- `applyConfidence` now runs after chain construction so `AttackChain01/02` and drift findings carry confidence scores too.
+
 ## [3.16.0] - 2026-09-29
 
 The Reach release: Streamable HTTP transport, batch fleet auditing, JSON-RPC transcripts, OWASP MCP Top 10 mapping and HTTP-layer threat detection.

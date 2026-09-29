@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kodivante/MCPwn/v3/internal/auditor"
+	"github.com/kodivante/MCPwn/v3/internal/risk"
 	"github.com/kodivante/MCPwn/v3/internal/scorer"
 	"github.com/kodivante/MCPwn/v3/internal/version"
 )
@@ -52,6 +53,21 @@ func renderReport(w io.Writer, findings []auditor.Finding) {
 	gradeClr := gradeTerminalColor(s.Grade)
 	fmt.Fprintf(w, "%s%sSecurity Score: %s  |  %d CRITICAL  %d HIGH  %d MEDIUM  %d LOW%s\n",
 		Bold, gradeClr, string(s.Grade), s.Critical, s.High, s.Medium, s.Low, Reset)
+
+	riskIndex := risk.ServerIndex(findings)
+	riskClr := gradeTerminalColor(scorer.Grade(riskIndex.Grade))
+	fmt.Fprintf(w, "%s%sRisk Index: %d/100 (%s)  |  chains: %d%s\n",
+		Bold, riskClr, riskIndex.Index, riskIndex.Grade, countChains(findings), Reset)
+}
+
+func countChains(findings []auditor.Finding) int {
+	count := 0
+	for _, finding := range findings {
+		if strings.HasPrefix(finding.RuleID, "AttackChain") {
+			count++
+		}
+	}
+	return count
 }
 
 func gradeTerminalColor(g scorer.Grade) string {

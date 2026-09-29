@@ -21,6 +21,7 @@ h1 span { color: #ff8000; font-size: 15px; margin-left: 10px; font-weight: 700; 
 .stat .label { font-size: 10px; color: #57606a; letter-spacing: 1px; text-transform: uppercase; margin-top: 2px; }
 .stat.total .num { color: #1f2328; }
 .stat.confirmed .num { color: #1a7f37; }
+.stat.risk .num { color: #8250df; }
 .stat.critical .num { color: #cf222e; }
 .stat.high .num { color: #bc4c00; }
 .stat.medium .num { color: #bf8700; }
@@ -73,6 +74,7 @@ footer .author span { color: #ff8000; }
 <div class="dashboard">
 <div class="stat total"><div class="num">{{.Total}}</div><div class="label">Findings</div></div>
 <div class="stat confirmed"><div class="num">{{.Confirmed}}</div><div class="label">Confirmed</div></div>
+<div class="stat risk"><div class="num">{{.RiskIndex}}</div><div class="label">Risk Index ({{.RiskGrade}})</div></div>
 <div class="stat critical"><div class="num">{{.CountCritical}}</div><div class="label">Critical</div></div>
 <div class="stat high"><div class="num">{{.CountHigh}}</div><div class="label">High</div></div>
 <div class="stat medium"><div class="num">{{.CountMedium}}</div><div class="label">Medium</div></div>

@@ -10,7 +10,7 @@ import (
 	"github.com/kodivante/MCPwn/v3/internal/ui"
 )
 
-func render(findings []auditor.Finding, cfg Config) error {
+func render(findings []auditor.Finding, artifacts auditArtifacts, cfg Config) error {
 	switch cfg.OutputFormat {
 	case "json":
 		data, err := reporter.GenerateJSON(findings)
@@ -26,6 +26,12 @@ func render(findings []auditor.Finding, cfg Config) error {
 		return writeReport(data, cfg.OutputFile)
 	case "html":
 		data, err := reporter.GenerateHTML(findings)
+		if err != nil {
+			return err
+		}
+		return writeReport(data, cfg.OutputFile)
+	case "graph":
+		data, err := reporter.GenerateGraphReport(findings, artifacts.profiles, artifacts.entityGraph)
 		if err != nil {
 			return err
 		}

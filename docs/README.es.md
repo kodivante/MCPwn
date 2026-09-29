@@ -30,6 +30,9 @@ Esa noche se escribió la primera versión de MCPwn. Creció hasta ser una suite
 - **Mapping OWASP MCP Top 10**: cada hallazgo lleva su tag `MCPxx:2025` en JSON, SARIF y HTML, más una matriz de cobertura de los diez riesgos en cada reporte HTML.
 - **Auditoría de flotas** (`-targets`): audita todos los servidores MCP de la organización desde un solo archivo JSON, con reportes por objetivo e inventario consolidado.
 - **Análisis de cadenas de ataque**: post-análisis siempre activo que enlaza hallazgos en rutas de explotación (RCE + fuga de credenciales, SSRF + token leak, prompt injection + SSRF) y reporta la cadena completa con evidencia.
+- **Grafo de ataque de entidades**: cada tool recibe un perfil de capacidades (exec, filesystem, network, database, state, credentials) que alimenta un grafo de conocimiento — serializable con `-output=graph` — que impulsa la detección de cadenas multi-hop (`AttackChain02`) y queries de alcance por tool.
+- **Risk Index 0-100**: severidad, confirmación y confidence ponderados por hallazgo, con amplificación por cadenas y bonos de densidad — un veredicto numérico más allá de los conteos simples, visible en terminal, HTML e inventarios batch.
+- **Snapshots de aprobación**: `-snapshot-save` congela los fingerprints de tools aprobadas y el shape de sus respuestas; `-snapshot-compare` reporta `ToolDrift01` (cambios de descripción, schema, altas/bajas de tools) y `BehaviorDrift01` (cambios de estructura de respuesta) — rug pulls detectados entre ejecuciones y días, no solo entre sesiones.
 - **Confianza por hallazgo**: cada hallazgo lleva un score `Confidence` de 0-100 — confirmado con evidencia puntúa 95, estático 70 — habilitando gates de CI con casi cero falsos positivos.
 - **Transcripciones completas** (`-record`): cada request y response JSON-RPC queda logueado como JSONL con timestamps para reproducibilidad total.
 - **Motor de fuzzing dinámico**: confirma hallazgos de inyección de comandos con payloads benignos (echo con marca única, sleep controlado, archivo temporal auto-borrable) con una deny-list estricta hardcodeada.
@@ -114,7 +117,7 @@ mcpwn -targets=targets.json -deep -outdir=reports -file=inventory.json
 | `-args` | — | Argumentos del comando, separados por comas |
 | `-url` | — | URL para los transportes SSE/HTTP |
 | `-auth-header` | — | Valor del header `Authorization` para el transporte HTTP (ej. `Bearer token`) |
-| `-output` | `terminal` | Formato: `terminal`, `json`, `sarif`, `html`, `badge` |
+| `-output` | `terminal` | Formato: `terminal`, `json`, `sarif`, `html`, `badge`, `graph` |
 | `-file` | — | Escribir la salida a un archivo en vez de stdout |
 | `-timeout` | `30s` | Timeout por auditoría |
 | `-fuzz` | `false` | Ejecutar fuzzing dinámico para confirmar hallazgos |
@@ -147,6 +150,8 @@ mcpwn -targets=targets.json -deep -outdir=reports -file=inventory.json
 | `-record` | — | Guarda una transcripción JSONL de cada mensaje JSON-RPC |
 | `-targets` | — | Modo batch: archivo JSON con el arreglo de objetivos a auditar |
 | `-outdir` | — | Directorio para reportes por objetivo en modo batch |
+| `-snapshot-save` | — | Guarda un snapshot de fingerprints de tools aprobadas |
+| `-snapshot-compare` | — | Compara el servidor contra un snapshot y reporta el drift |
 | `-version` | — | Imprimir la versión y salir |
 
 **Códigos de salida**: `0` sin hallazgos CRITICAL ni HIGH, `1` en cualquier otro caso. Cualquier error operativo también sale con `1` y mensaje en stderr.
@@ -220,6 +225,7 @@ Quince motores, todos seguros por diseño. `-deep` los activa todos; `-quick` de
 | Sonda de elicitation | `-elicitation` | `ElicitationAbuse01` (MEDIUM) | Un servidor que acepta `elicitation/create` puede suplantar diálogos del cliente y phishear credenciales del usuario |
 | Sonda de roots del cliente | `-roots` | `RootsProbe01` (MEDIUM) | Un servidor que acepta `roots/list` puede enumerar el alcance del filesystem del cliente |
 | Analizador de cadenas | siempre activo | `AttackChain01` (HIGH/CRITICAL) | Enlaza hallazgos en rutas de explotación: RCE + fuga de credenciales se convierte en toma total del host; SSRF + token leak en movimiento lateral — cada cadena reporta sus eslabones con evidencia |
+| Analizador multi-hop | siempre activo | `AttackChain02` (HIGH/CRITICAL) | Camina el grafo de capacidades en tres saltos: exec + credenciales + red se convierte en pipeline de exfiltración completo; filesystem + credenciales en cosecha de secretos; red + exec en toma remota |
 | Fuzzer dinámico | `-fuzz` | Confirma `CmdInjection01` | Payloads benignos de echo/sleep/temp-file con deny-list estricta (`rm`, `curl`, `wget`, `nc`, `ssh`, `sudo` son rechazados por hardcode) |
 | Simulador de prompt injection | `-prompt-inject` | `PromptInjection01` | Tres payloads benignos fijos clasificados como reflejo total o parcial |
 
@@ -247,6 +253,34 @@ Cada hallazgo se mapea al [OWASP Top 10 para MCP](https://owasp.org/www-project-
 | `MCP10:2025` | Context Injection & Over-Sharing | `PathTraversal01`, `ResourceTraversal01`, `ContextSharing01` |
 
 Los reportes HTML incluyen la matriz de cobertura completa con conteos por riesgo.
+
+---
+
+## Risk Engine y Grafo de Ataque
+
+Más allá de contar severidades, MCPwn puntúa cada hallazgo 0-100 ponderando severidad, confirmación y confidence, y amplifica cadenas y clusters densos en un **Risk Index** a nivel servidor:
+
+```
+Security Score: D  |  1 CRITICAL  1 HIGH  3 MEDIUM  0 LOW
+Risk Index: 78/100 (D)  |  chains: 3
+```
+
+Cada tool se perfila en capacidades (exec, filesystem, network, database, state, credentials) y se conecta en un grafo de entidades. El grafo impulsa la detección de cadenas multi-hop y responde preguntas de alcance; expórtalo con:
+
+```bash
+mcpwn -transport=stdio -command=npx -args=-y,@modelcontextprotocol/server-filesystem,/tmp -deep -output=graph -file=graph.json
+```
+
+El reporte del grafo contiene el risk index, todos los nodos y aristas, el alcance por tool y cada cadena detectada.
+
+**Workflow de aprobación**: congela un servidor revisado y detecta drift en cada auditoría futura:
+
+```bash
+mcpwn ... -snapshot-save=approved.json
+mcpwn ... -snapshot-compare=approved.json
+```
+
+`ToolDrift01` se dispara ante cambios de descripción (HIGH - señal de rug pull), cambios de schema (MEDIUM) y altas/bajas de tools; `BehaviorDrift01` se dispara cuando la estructura de respuesta de una tool cambia desde la aprobación.
 
 ---
 

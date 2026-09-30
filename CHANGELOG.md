@@ -2,6 +2,18 @@
 
 All notable releases of MCPwn are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [3.21.0] - 2026-09-30
+
+The Deep Analysis release: interprocedural taint tracking, source-to-runtime correlation and an evidence-backed attack graph. The static layer stops finding sinks and starts tracing how tool input reaches them.
+
+### Added
+- Taint engine (`internal/taint`, under `-source`): pure-Go interprocedural analysis over Python/JS/TS that identifies MCP tool handlers as sources (FastMCP-style `@mcp.tool()` decorators and `server.tool("name", handler)` registrations), propagates taint through assignments, returns and positional call arguments across function boundaries, and reports `SourceTaint01` (HIGH) with the complete call path to the sink for exec, network, filesystem, database and deserialization sinks: `runReport (server.py:46) -> executeShell (server.py:48) -> subprocess.run (server.py:54)`. Constant sink arguments never fire and recursion terminates through visited-state memoization.
+- Source-to-runtime correlation (`internal/correlation`): when a static taint path matches a dynamically confirmed finding on the same tool (fuzzer marker, SSRF canary, mutation evidence), `CorrelatedVuln01` (CRITICAL, confirmed) merges both proofs into one finding: `static path: runReport -> executeShell -> subprocess.run | runtime: CmdInjection01 confirmed`. A vulnerability traced in source code and reproduced at runtime is no longer a hypothesis.
+- Evidence-backed attack graph: parameter and sink nodes join tools and capabilities, with `receives` and `reaches` edges carrying per-edge evidence. `-output=graph` now models real data flow — `tool -> parameter -> sink` — with the traced path attached to every edge.
+- Campaign runner: taint findings generate hypotheses tested by runtime confirmation probes; correlated vulnerabilities mark those hypotheses confirmed.
+- Risk engine: correlated findings receive chain-level amplification.
+- Validation lab (`test/fixtures/lab`): a vulnerable corpus (command execution and SSRF across multi-hop function chains, running as a live MCP server) and a benign corpus that must audit with zero findings. Both are regression-tested on every suite run, and the vulnerable lab demonstrates the full static → dynamic → correlated pipeline end to end. The taint layer's benign corpus proves false-positive resistance: sinks reached only through constant arguments stay silent.
+
 ## [3.20.0] - 2026-09-30
 
 The Adaptive release: execution-aware mutation probing and sequence fuzzing join the deep battery.

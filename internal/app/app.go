@@ -12,6 +12,7 @@ import (
 	"github.com/kodivante/MCPwn/v3/internal/campaign"
 	"github.com/kodivante/MCPwn/v3/internal/capability"
 	"github.com/kodivante/MCPwn/v3/internal/client"
+	"github.com/kodivante/MCPwn/v3/internal/correlation"
 	"github.com/kodivante/MCPwn/v3/internal/graph"
 	"github.com/kodivante/MCPwn/v3/internal/policy"
 	"github.com/kodivante/MCPwn/v3/internal/promptinject"
@@ -19,6 +20,7 @@ import (
 	"github.com/kodivante/MCPwn/v3/internal/snapshot"
 	"github.com/kodivante/MCPwn/v3/internal/sourcescan"
 	"github.com/kodivante/MCPwn/v3/internal/supplychain"
+	"github.com/kodivante/MCPwn/v3/internal/taint"
 )
 
 type Config struct {
@@ -77,6 +79,7 @@ type Config struct {
 type auditArtifacts struct {
 	profiles    []capability.ToolCapability
 	entityGraph graph.Graph
+	taintPaths  []taint.Path
 	campaign    []campaign.Hypothesis
 }
 
@@ -133,10 +136,6 @@ func auditOnce(ctx context.Context, cfg Config, connectFactory transportFactory)
 func collectFindings(ctx context.Context, connectFactory transportFactory, session *client.Session, tools []schema.Tool, findings []auditor.Finding, cfg Config) ([]auditor.Finding, auditArtifacts, error) {
 	artifacts := auditArtifacts{}
 	artifacts.profiles = capability.Profile(tools)
-	var hypotheses []campaign.Hypothesis
-	if cfg.Autopilot {
-		hypotheses = campaign.BuildHypotheses(findings, artifacts.profiles)
-	}
 	if cfg.Fuzz {
 		fuzzEngine, fuzzErr := newFuzzEngine(session, cfg)
 		if fuzzErr != nil {
@@ -148,12 +147,22 @@ func collectFindings(ctx context.Context, connectFactory transportFactory, sessi
 		promptEngine := promptinject.NewEngine(session, promptinject.Options{Timeout: cfg.FuzzTimeout})
 		findings = append(findings, promptEngine.ProbeTools(tools)...)
 	}
-	findings = runDeepProbes(ctx, connectFactory, session, tools, findings, cfg, artifacts.profiles)
 	localFindings, localErr := localScanFindings(cfg)
 	if localErr != nil {
 		return nil, artifacts, localErr
 	}
 	findings = append(findings, localFindings...)
+	taintFindings, taintErr := runTaintAnalysis(cfg, &artifacts)
+	if taintErr != nil {
+		return nil, artifacts, taintErr
+	}
+	findings = append(findings, taintFindings...)
+	var hypotheses []campaign.Hypothesis
+	if cfg.Autopilot {
+		hypotheses = campaign.BuildHypotheses(findings, artifacts.profiles)
+	}
+	findings = runDeepProbes(ctx, connectFactory, session, tools, findings, cfg, artifacts.profiles)
+	findings = append(findings, correlation.Correlate(findings, artifacts.taintPaths)...)
 	advisorFindings, advisorErr := runAdvisor(cfg, findings, artifacts.profiles)
 	if advisorErr != nil {
 		return nil, artifacts, advisorErr
@@ -163,6 +172,7 @@ func collectFindings(ctx context.Context, connectFactory transportFactory, sessi
 		return nil, artifacts, err
 	}
 	artifacts.entityGraph = graph.BuildGraph(tools, artifacts.profiles, findings)
+	artifacts.entityGraph = graph.AttachTaintPaths(artifacts.entityGraph, artifacts.taintPaths)
 	findings = append(findings, artifacts.entityGraph.DetectChains(artifacts.profiles, findings)...)
 	findings = attackchain.NewDetector().Analyze(findings)
 	applyConfidence(findings)
@@ -170,6 +180,18 @@ func collectFindings(ctx context.Context, connectFactory transportFactory, sessi
 		artifacts.campaign = campaign.Evaluate(hypotheses, findings)
 	}
 	return findings, artifacts, nil
+}
+
+func runTaintAnalysis(cfg Config, artifacts *auditArtifacts) ([]auditor.Finding, error) {
+	if cfg.SourcePath == "" {
+		return nil, nil
+	}
+	taintFindings, taintPaths, err := taint.Analyze(cfg.SourcePath)
+	if err != nil {
+		return nil, fmt.Errorf("taint analysis failed: %w", err)
+	}
+	artifacts.taintPaths = taintPaths
+	return taintFindings, nil
 }
 
 func runAdvisor(cfg Config, findings []auditor.Finding, profiles []capability.ToolCapability) ([]auditor.Finding, error) {

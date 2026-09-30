@@ -6,6 +6,7 @@ import (
 	"github.com/kodivante/MCPwn/v3/internal/auditor"
 	"github.com/kodivante/MCPwn/v3/internal/capability"
 	"github.com/kodivante/MCPwn/v3/internal/schema"
+	"github.com/kodivante/MCPwn/v3/internal/taint"
 )
 
 type NodeKind string
@@ -13,11 +14,14 @@ type NodeKind string
 const (
 	KindTool       NodeKind = "tool"
 	KindCapability NodeKind = "capability"
+	KindParameter  NodeKind = "parameter"
+	KindSink       NodeKind = "sink"
 )
 
 const (
-	EdgeReaches = "reaches"
-	EdgeExposes = "exposes"
+	EdgeReaches  = "reaches"
+	EdgeExposes  = "exposes"
+	EdgeReceives = "receives"
 )
 
 type Node struct {
@@ -28,9 +32,10 @@ type Node struct {
 }
 
 type Edge struct {
-	From string `json:"from"`
-	To   string `json:"to"`
-	Kind string `json:"kind"`
+	From     string `json:"from"`
+	To       string `json:"to"`
+	Kind     string `json:"kind"`
+	Evidence string `json:"evidence,omitempty"`
 }
 
 type Graph struct {
@@ -139,4 +144,42 @@ func (g Graph) ReachReport(profiles []capability.ToolCapability) []ToolReach {
 	}
 	sort.Slice(report, func(i, j int) bool { return report[i].Tool < report[j].Tool })
 	return report
+}
+
+func AttachTaintPaths(target Graph, paths []taint.Path) Graph {
+	nodes := make(map[string]bool)
+	for _, node := range target.Nodes {
+		nodes[node.ID] = true
+	}
+	ensureNode := func(node Node) {
+		if !nodes[node.ID] {
+			nodes[node.ID] = true
+			target.Nodes = append(target.Nodes, node)
+		}
+	}
+	seen := make(map[string]bool)
+	for _, path := range paths {
+		toolID := toolNodeID(path.Tool)
+		ensureNode(Node{ID: toolID, Kind: KindTool, Label: path.Tool})
+		sinkID := "sink:" + path.Tool + ":" + path.SinkClass
+		ensureNode(Node{ID: sinkID, Kind: KindSink, Label: path.SinkClass})
+		for _, param := range path.Params {
+			paramID := "param:" + path.Tool + ":" + param
+			ensureNode(Node{ID: paramID, Kind: KindParameter, Label: param})
+			if !seen[paramID] {
+				seen[paramID] = true
+				target.Edges = append(target.Edges, Edge{From: toolID, To: paramID, Kind: EdgeReceives, Evidence: "mcp tool input"})
+			}
+			if !seen[paramID+"|"+sinkID] {
+				seen[paramID+"|"+sinkID] = true
+				target.Edges = append(target.Edges, Edge{
+					From:     paramID,
+					To:       sinkID,
+					Kind:     EdgeReaches,
+					Evidence: path.Evidence(),
+				})
+			}
+		}
+	}
+	return target
 }

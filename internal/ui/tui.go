@@ -103,7 +103,7 @@ func isAdvancedRule(ruleID string) bool {
 		"ResourceTraversal", "PromptPoisoning", "AttackChain",
 		"HttpSession", "HttpOrigin", "HttpAuthBypass", "HttpBatch",
 		"ElicitationAbuse", "RootsProbe", "ToolDrift", "BehaviorDrift",
-		"Source", "DependencyVuln", "Typosquat", "UnpinnedDep",
+		"Source", "DependencyVuln", "Typosquat", "UnpinnedDep", "SourceTaint", "CorrelatedVuln",
 		"OAuth", "TokenPassthrough", "AdvisorHint", "MutationDiff", "Idempotency", "SequenceDrift",
 	}
 	for _, prefix := range advancedPrefixes {

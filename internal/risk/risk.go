@@ -35,7 +35,7 @@ func FindingRisk(f auditor.Finding) int {
 		}
 	}
 	score := float64(base) * factor * (0.5 + 0.005*float64(confidence))
-	if strings.HasPrefix(f.RuleID, "AttackChain") {
+	if strings.HasPrefix(f.RuleID, "AttackChain") || f.RuleID == "CorrelatedVuln01" {
 		score += chainAmplification
 	}
 	return clamp(score)

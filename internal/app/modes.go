@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/kodivante/MCPwn/v3/internal/attackchain"
+	"github.com/kodivante/MCPwn/v3/internal/correlation"
 	"github.com/kodivante/MCPwn/v3/internal/discovery"
 )
 
@@ -32,9 +33,16 @@ func RunSourceScan(ctx context.Context, cfg Config) (int, error) {
 	if err != nil {
 		return 1, err
 	}
+	artifacts := auditArtifacts{}
+	taintFindings, taintErr := runTaintAnalysis(cfg, &artifacts)
+	if taintErr != nil {
+		return 1, taintErr
+	}
+	findings = append(findings, taintFindings...)
+	findings = append(findings, correlation.Correlate(findings, artifacts.taintPaths)...)
 	applyConfidence(findings)
 	findings = attackchain.NewDetector().Analyze(findings)
-	if err := render(findings, auditArtifacts{}, cfg); err != nil {
+	if err := render(findings, artifacts, cfg); err != nil {
 		return 1, err
 	}
 	if cfg.DiffFile != "" {

@@ -19,6 +19,8 @@ var ruleMapping = map[string]string{
 	"Typosquat01":                      "MCP04:2025",
 	"UnpinnedDep01":                    "MCP04:2025",
 	"CmdInjection01":                   "MCP05:2025",
+	"SourceTaint01":                    "MCP05:2025",
+	"CorrelatedVuln01":                 "MCP05:2025",
 	"SqlInjection01":                   "MCP05:2025",
 	"NoSqlInjection01":                 "MCP05:2025",
 	"TemplateInjection01":              "MCP05:2025",

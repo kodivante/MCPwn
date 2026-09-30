@@ -31,6 +31,7 @@ var confirmableRules = map[string]string{
 	"StateMutation01":  "exhaustion and race probes",
 	"Idor01":           "schema-aware fuzzing",
 	"ToolPoisoning01":  "prompt and description audit",
+	"SourceTaint01":    "runtime confirmation probes",
 	"ContextSharing01": "resource traversal probe",
 }
 

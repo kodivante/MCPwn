@@ -30,6 +30,9 @@ That night, the first version of MCPwn was written. It grew into a full suite: t
 - **Supply chain auditing** (`-supply-chain`): parses `requirements.txt`, `package.json` and `go.mod`, queries the OSV.dev vulnerability database live, flags typosquats (Damerau-Levenshtein distance 1 from popular packages) and unpinned dependencies.
 - **OAuth authorization auditing** (`-auth-audit`): follows 401 challenges into OAuth metadata, verifies S256 PKCE advertisement, detects missing RFC 9728 metadata and bearer token passthrough acceptance.
 - **Shadow MCP discovery** (`-discover`): inventories every MCP server configured on the machine (Claude Desktop, Claude Code, Cursor, VS Code, `.mcp.json`) with local-stdio/local-http/remote classification.
+- **Autopilot campaigns** (`-autopilot`): a deterministic plan of hypotheses — what we hope to prove, through which probe — built before testing and evaluated after, printing a campaign summary of confirmed versus unproven leads.
+- **Policy gates** (`-policy`): JSON files enforce custom gates (`failOn` severities, `maxFindings`, `ignoreRules`) on top of the default severity logic, for CI pipelines with stricter requirements.
+- **Optional LLM advisor** (`-advisor-endpoint`): sends strictly anonymized context (hashes, capabilities, rule IDs) to an external endpoint and turns returned hypotheses into clearly-marked `AdvisorHint01` leads — LOW severity, confidence 40, never confirmed. AI-assisted, never AI-authoritative.
 - **Deep dynamic testing suite** (`-deep`): eighteen engines — path traversal prober, SSRF canary, schema pollution probe, lifecycle desync, protocol fuzzer, race prober, exhaustion probe, tool rug-pull detector, token leak scanner, sampling abuse probe, side-channel detector, resource traversal prober, prompt template auditor, HTTP threat engine, elicitation abuse probe and client roots probe.
 - **OWASP MCP Top 10 mapping**: every finding carries its `MCPxx:2025` tag in JSON, SARIF and HTML, plus a coverage matrix of all ten risks in every HTML report.
 - **Batch fleet auditing** (`-targets`): audit every MCP server in your organization from one JSON file, with per-target reports and a consolidated inventory.
@@ -160,6 +163,9 @@ mcpwn -targets=targets.json -deep -outdir=reports -file=inventory.json
 | `-supply-chain` | — | Path to the server project with manifests to audit dependencies |
 | `-auth-audit` | `false` | Probe OAuth metadata, PKCE and token validation on HTTP transport |
 | `-discover` | `false` | Inventory MCP servers configured on this machine and exit |
+| `-autopilot` | `false` | Run the full hypothesis-driven campaign and print its summary |
+| `-policy` | — | Policy file with security gates (`failOn`, `maxFindings`, `ignoreRules`) |
+| `-advisor-endpoint` | — | Optional LLM advisor endpoint receiving anonymized context for hypotheses |
 | `-version` | — | Print version and exit |
 
 **Exit codes**: `0` when no CRITICAL or HIGH findings, `1` otherwise. Any operational error also exits `1` with a message on stderr.
@@ -335,6 +341,41 @@ mcpwn -discover
 ```
 
 Scans Claude Desktop, Claude Code, Cursor, VS Code and `.mcp.json` locations, classifies each server as local-stdio, local-http or remote, and exports JSON with `-output=json -file=inventory.json`.
+
+---
+
+## Autopilot, Policies and the Advisor
+
+**Autopilot** turns an audit into a visible campaign: before probing, MCPwn derives the hypotheses worth testing (which findings a probe could confirm, which capabilities deserve attention); after the battery it reports what was proven:
+
+```
+Campaign summary: 10 hypotheses, 3 confirmed, 7 unproven
+  [!] CmdInjection01          systemExec         via fuzzer
+  [?] Ssrf01                  fetchUrl           via ssrf canary
+  ...
+```
+
+```bash
+mcpwn -transport=stdio -command=npx -args=-y,@modelcontextprotocol/server-filesystem,/tmp -autopilot
+```
+
+**Policy gates** layer custom CI requirements on top of the default severity logic:
+
+```json
+{"failOn": ["CRITICAL", "HIGH"], "maxFindings": 20, "ignoreRules": ["SchemaValidation01"]}
+```
+
+```bash
+mcpwn ... -policy=policy.json
+```
+
+Violations print after the report and force exit code 1.
+
+**The advisor** is optional AI assistance with hard safety rails: the request carries only SHA-256 tool hashes, capability lists, rule IDs and severities — never names, descriptions or user data — and every returned hypothesis becomes an `AdvisorHint01` finding capped at LOW severity and confidence 40, clearly labeled as unverified. Hypotheses are leads to reproduce, never verdicts.
+
+```bash
+mcpwn ... -advisor-endpoint=http://localhost:8098/advise
+```
 
 ---
 

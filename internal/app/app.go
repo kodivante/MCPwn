@@ -6,11 +6,14 @@ import (
 	"os"
 	"time"
 
+	"github.com/kodivante/MCPwn/v3/internal/advisor"
 	"github.com/kodivante/MCPwn/v3/internal/attackchain"
 	"github.com/kodivante/MCPwn/v3/internal/auditor"
+	"github.com/kodivante/MCPwn/v3/internal/campaign"
 	"github.com/kodivante/MCPwn/v3/internal/capability"
 	"github.com/kodivante/MCPwn/v3/internal/client"
 	"github.com/kodivante/MCPwn/v3/internal/graph"
+	"github.com/kodivante/MCPwn/v3/internal/policy"
 	"github.com/kodivante/MCPwn/v3/internal/promptinject"
 	"github.com/kodivante/MCPwn/v3/internal/schema"
 	"github.com/kodivante/MCPwn/v3/internal/snapshot"
@@ -35,6 +38,11 @@ type Config struct {
 	SourcePath      string
 	AuthAudit       bool
 	Discover        bool
+	Autopilot       bool
+	PolicyFile      string
+	AdvisorEndpoint string
+	Mutate          bool
+	Sequence        bool
 	Timeout         time.Duration
 	Fuzz            bool
 	FuzzTimeout     time.Duration
@@ -69,6 +77,7 @@ type Config struct {
 type auditArtifacts struct {
 	profiles    []capability.ToolCapability
 	entityGraph graph.Graph
+	campaign    []campaign.Hypothesis
 }
 
 type transportFactory func(ctx context.Context, cfg Config) (client.Transport, error)
@@ -123,6 +132,11 @@ func auditOnce(ctx context.Context, cfg Config, connectFactory transportFactory)
 
 func collectFindings(ctx context.Context, connectFactory transportFactory, session *client.Session, tools []schema.Tool, findings []auditor.Finding, cfg Config) ([]auditor.Finding, auditArtifacts, error) {
 	artifacts := auditArtifacts{}
+	artifacts.profiles = capability.Profile(tools)
+	var hypotheses []campaign.Hypothesis
+	if cfg.Autopilot {
+		hypotheses = campaign.BuildHypotheses(findings, artifacts.profiles)
+	}
 	if cfg.Fuzz {
 		fuzzEngine, fuzzErr := newFuzzEngine(session, cfg)
 		if fuzzErr != nil {
@@ -140,15 +154,34 @@ func collectFindings(ctx context.Context, connectFactory transportFactory, sessi
 		return nil, artifacts, localErr
 	}
 	findings = append(findings, localFindings...)
+	advisorFindings, advisorErr := runAdvisor(cfg, findings, artifacts.profiles)
+	if advisorErr != nil {
+		return nil, artifacts, advisorErr
+	}
+	findings = append(findings, advisorFindings...)
 	if err := runSnapshotWorkflow(session, tools, &findings, &artifacts, cfg); err != nil {
 		return nil, artifacts, err
 	}
-	artifacts.profiles = capability.Profile(tools)
 	artifacts.entityGraph = graph.BuildGraph(tools, artifacts.profiles, findings)
 	findings = append(findings, artifacts.entityGraph.DetectChains(artifacts.profiles, findings)...)
 	findings = attackchain.NewDetector().Analyze(findings)
 	applyConfidence(findings)
+	if cfg.Autopilot {
+		artifacts.campaign = campaign.Evaluate(hypotheses, findings)
+	}
 	return findings, artifacts, nil
+}
+
+func runAdvisor(cfg Config, findings []auditor.Finding, profiles []capability.ToolCapability) ([]auditor.Finding, error) {
+	if cfg.AdvisorEndpoint == "" {
+		return nil, nil
+	}
+	engine := advisor.NewEngine(advisor.Options{Endpoint: cfg.AdvisorEndpoint, Timeout: cfg.FuzzTimeout})
+	hints, err := engine.Consult(findings, profiles)
+	if err != nil {
+		return nil, fmt.Errorf("advisor consult failed: %w", err)
+	}
+	return hints, nil
 }
 
 func localScanFindings(cfg Config) ([]auditor.Finding, error) {
@@ -175,27 +208,39 @@ func runSnapshotWorkflow(session *client.Session, tools []schema.Tool, findings 
 	if cfg.SnapshotSave == "" && cfg.SnapshotCompare == "" {
 		return nil
 	}
-	profiles := capability.Profile(tools)
 	if cfg.SnapshotSave != "" {
 		shapes := snapshot.CollectShapes(session, tools)
-		if err := snapshot.Save(cfg.SnapshotSave, tools, profiles, shapes); err != nil {
+		if err := snapshot.Save(cfg.SnapshotSave, tools, artifacts.profiles, shapes); err != nil {
 			return fmt.Errorf("snapshot save failed: %w", err)
 		}
 	}
 	if cfg.SnapshotCompare != "" {
-		drift, err := snapshot.Compare(cfg.SnapshotCompare, session, tools, profiles)
+		drift, err := snapshot.Compare(cfg.SnapshotCompare, session, tools, artifacts.profiles)
 		if err != nil {
 			return fmt.Errorf("snapshot compare failed: %w", err)
 		}
 		*findings = append(*findings, drift...)
 	}
-	artifacts.profiles = profiles
 	return nil
 }
 
 func finalizeFindings(findings []auditor.Finding, artifacts auditArtifacts, cfg Config) (int, error) {
 	if err := render(findings, artifacts, cfg); err != nil {
 		return 1, err
+	}
+	if len(artifacts.campaign) > 0 {
+		fmt.Print(campaign.Report(artifacts.campaign))
+	}
+	if cfg.PolicyFile != "" {
+		target, err := policy.Load(cfg.PolicyFile)
+		if err != nil {
+			return 1, err
+		}
+		violations, fail := policy.Evaluate(target, findings)
+		fmt.Print(policy.Report(violations))
+		if fail {
+			return 1, nil
+		}
 	}
 	if cfg.DiffFile != "" {
 		if err := runDiff(findings, cfg.DiffFile); err != nil {

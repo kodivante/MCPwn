@@ -10,6 +10,10 @@ const (
 	confidenceBehavioral = 55
 )
 
+var advisoryRules = map[string]bool{
+	"AdvisorHint01": true,
+}
+
 var behavioralRules = map[string]bool{
 	"SideChannel01": true,
 	"SideChannel02": true,
@@ -24,6 +28,8 @@ func applyConfidence(findings []auditor.Finding) {
 
 func setFindingConfidence(finding *auditor.Finding) {
 	switch {
+	case advisoryRules[finding.RuleID]:
+		finding.SetConfidence(40)
 	case behavioralRules[finding.RuleID]:
 		finding.SetConfidence(confidenceBehavioral)
 	case finding.Confirmed && finding.Evidence != "":

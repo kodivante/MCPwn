@@ -2,6 +2,16 @@
 
 All notable releases of MCPwn are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [3.19.0] - 2026-09-30
+
+The Autopilot release: hypothesis-driven campaigns, policy gates and an optional LLM advisor that proposes leads but never verdicts.
+
+### Added
+- Campaign runner (`-autopilot`): builds a deterministic plan of hypotheses from static findings, capability profiles and server-level probes before testing; after the battery it marks each hypothesis confirmed or unproven and prints the campaign summary. The plan and outcomes also ship inside `-output=graph`.
+- Policy gates (`-policy`): JSON files with `failOn` severities, `maxFindings` and `ignoreRules` enforce custom security gates; violations print after the report and force exit code 1 without touching the default severity logic.
+- LLM advisor (`-advisor-endpoint`): sends strictly anonymized context (SHA-256 tool hashes, capability lists, rule IDs and severities — never names, descriptions or user data) to an optional endpoint and receives hypotheses back. Every accepted hint becomes an `AdvisorHint01` finding hard-capped at LOW severity, never confirmed, confidence 40 and clearly marked as unverified — AI-assisted assessment, never AI authority. Batch runs skip the advisor per target.
+- Advisory hints keep their confidence through `applyConfidence` via the new advisory rule tier.
+
 ## [3.18.0] - 2026-09-29
 
 The Depth release: source code analysis, supply chain auditing, OAuth authorization probing, shadow MCP discovery and four new static rules — closing OWASP MCP Top 10 coverage across MCP04, MCP07, MCP08 and MCP09.

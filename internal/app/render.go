@@ -31,7 +31,7 @@ func render(findings []auditor.Finding, artifacts auditArtifacts, cfg Config) er
 		}
 		return writeReport(data, cfg.OutputFile)
 	case "graph":
-		data, err := reporter.GenerateGraphReport(findings, artifacts.profiles, artifacts.entityGraph)
+		data, err := reporter.GenerateGraphReport(findings, artifacts.profiles, artifacts.entityGraph, artifacts.campaign)
 		if err != nil {
 			return err
 		}

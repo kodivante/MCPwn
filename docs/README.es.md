@@ -30,6 +30,9 @@ Esa noche se escribió la primera versión de MCPwn. Creció hasta ser una suite
 - **Auditoría de supply chain** (`-supply-chain`): parsea `requirements.txt`, `package.json` y `go.mod`, consulta la base de vulnerabilidades OSV.dev en vivo, marca typosquats (distancia Damerau-Levenshtein 1 de paquetes populares) y dependencias sin pinchar.
 - **Auditoría de autorización OAuth** (`-auth-audit`): sigue los challenges 401 hasta los metadatos OAuth, verifica el anuncio de PKCE S256, detecta metadatos RFC 9728 faltantes y aceptación de tokens bearer fabricados.
 - **Discovery de MCPs shadow** (`-discover`): inventaría cada servidor MCP configurado en la máquina (Claude Desktop, Claude Code, Cursor, VS Code, `.mcp.json`) con clasificación local-stdio/local-http/remoto.
+- **Campañas autopilot** (`-autopilot`): un plan determinista de hipótesis — qué esperamos probar y con cuál probe — construido antes de testear y evaluado después, imprimiendo un resumen de confirmadas versus no probadas.
+- **Policy gates** (`-policy`): archivos JSON que aplican gates personalizadas (`failOn` severidades, `maxFindings`, `ignoreRules`) sobre la lógica de severidad por defecto, para pipelines de CI con requisitos más estrictos.
+- **LLM advisor opcional** (`-advisor-endpoint`): envía contexto estrictamente anonimizado (hashes, capacidades, IDs de reglas) a un endpoint externo y convierte las hipótesis recibidas en leads `AdvisorHint01` claramente marcados — severidad LOW, confidence 40, jamás confirmados. Asistido por IA, nunca autoridad de IA.
 - **Suite de testing dinámico profundo** (`-deep`): dieciocho motores — prober de traversal, canary SSRF, sonda de schema pollution, desync de lifecycle, fuzzer de protocolo, prober de race conditions, sonda de agotamiento, detector de rug-pull, escáner de token leaks, sonda de sampling, detector de side-channels, prober de resource traversal, auditor de prompt templates, motor de amenazas HTTP, sonda de elicitation y sonda de roots del cliente.
 - **Mapping OWASP MCP Top 10**: cada hallazgo lleva su tag `MCPxx:2025` en JSON, SARIF y HTML, más una matriz de cobertura de los diez riesgos en cada reporte HTML.
 - **Auditoría de flotas** (`-targets`): audita todos los servidores MCP de la organización desde un solo archivo JSON, con reportes por objetivo e inventario consolidado.
@@ -160,6 +163,9 @@ mcpwn -targets=targets.json -deep -outdir=reports -file=inventory.json
 | `-supply-chain` | — | Ruta del proyecto con manifests para auditar dependencias |
 | `-auth-audit` | `false` | Sondea metadatos OAuth, PKCE y validación de tokens en HTTP |
 | `-discover` | `false` | Inventaría los servidores MCP configurados en esta máquina |
+| `-autopilot` | `false` | Corre la campaña completa guiada por hipótesis e imprime su resumen |
+| `-policy` | — | Archivo de policy con gates de seguridad (`failOn`, `maxFindings`, `ignoreRules`) |
+| `-advisor-endpoint` | — | Endpoint opcional de advisor LLM que recibe contexto anonimizado para hipótesis |
 | `-version` | — | Imprimir la versión y salir |
 
 **Códigos de salida**: `0` sin hallazgos CRITICAL ni HIGH, `1` en cualquier otro caso. Cualquier error operativo también sale con `1` y mensaje en stderr.
@@ -329,6 +335,41 @@ mcpwn -discover
 ```
 
 Escanea las ubicaciones de Claude Desktop, Claude Code, Cursor, VS Code y `.mcp.json`, clasifica cada servidor como local-stdio, local-http o remoto, y exporta JSON con `-output=json -file=inventory.json`.
+
+---
+
+## Autopilot, Policies y el Advisor
+
+**Autopilot** convierte una auditoría en una campaña visible: antes de sondear, MCPwn deriva las hipótesis que vale la pena probar (qué hallazgos podría confirmar un probe, qué capacidades merecen atención); tras la batería reporta qué se probó:
+
+```
+Campaign summary: 10 hypotheses, 3 confirmed, 7 unproven
+  [!] CmdInjection01          systemExec         via fuzzer
+  [?] Ssrf01                  fetchUrl           via ssrf canary
+  ...
+```
+
+```bash
+mcpwn -transport=stdio -command=npx -args=-y,@modelcontextprotocol/server-filesystem,/tmp -autopilot
+```
+
+**Policy gates** agregan requisitos custom de CI sobre la lógica de severidad por defecto:
+
+```json
+{"failOn": ["CRITICAL", "HIGH"], "maxFindings": 20, "ignoreRules": ["SchemaValidation01"]}
+```
+
+```bash
+mcpwn ... -policy=policy.json
+```
+
+Las violaciones se imprimen tras el reporte y fuerzan exit code 1.
+
+**El advisor** es asistencia de IA opcional con rieles de seguridad duros: el request lleva solo hashes SHA-256 de tools, listas de capacidades, IDs de reglas y severidades — nunca nombres, descripciones ni datos del usuario — y cada hipótesis devuelta se convierte en un hallazgo `AdvisorHint01` limitado a severidad LOW y confidence 40, etiquetado como no verificado. Las hipótesis son leads por reproducir, jamás veredictos.
+
+```bash
+mcpwn ... -advisor-endpoint=http://localhost:8098/advise
+```
 
 ---
 

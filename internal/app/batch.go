@@ -90,6 +90,7 @@ func targetConfig(cfg Config, target Target) Config {
 	override.DiffFile = ""
 	override.RecordPath = ""
 	override.GenPoC = false
+	override.AdvisorEndpoint = ""
 	override.OutputFile = ""
 	if target.Transport != "" {
 		override.TransportType = target.Transport

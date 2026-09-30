@@ -73,6 +73,9 @@ type cliFlags struct {
 	supplyChain     *string
 	authAudit       *bool
 	discover        *bool
+	autopilot       *bool
+	policyFile      *string
+	advisorEndpoint *string
 	timeout         *time.Duration
 	fuzz            *bool
 	fuzzTimeout     *time.Duration
@@ -182,6 +185,9 @@ func declareFlags() cliFlags {
 		supplyChain:     flag.String("supply-chain", "", "Project path with manifests to audit dependencies"),
 		authAudit:       flag.Bool("auth-audit", false, "Probe OAuth metadata, PKCE and token validation"),
 		discover:        flag.Bool("discover", false, "Discover MCP servers configured on this machine"),
+		autopilot:       flag.Bool("autopilot", false, "Run the full hypothesis-driven campaign with a summary"),
+		policyFile:      flag.String("policy", "", "Policy file with security gates (failOn, maxFindings, ignoreRules)"),
+		advisorEndpoint: flag.String("advisor-endpoint", "", "Optional LLM advisor endpoint receiving anonymized context for hypotheses"),
 		timeout:         flag.Duration("timeout", 30*time.Second, "Total audit timeout"),
 		fuzz:            flag.Bool("fuzz", false, "Run dynamic fuzzing to confirm findings"),
 		fuzzTimeout:     flag.Duration("fuzz-timeout", 10*time.Second, "Per-probe fuzz timeout"),
@@ -234,6 +240,9 @@ func (f cliFlags) buildConfig() app.Config {
 		SupplyChainPath: *f.supplyChain,
 		AuthAudit:       *f.authAudit,
 		Discover:        *f.discover,
+		Autopilot:       *f.autopilot,
+		PolicyFile:      *f.policyFile,
+		AdvisorEndpoint: *f.advisorEndpoint,
 		Timeout:         *f.timeout,
 		Fuzz:            *f.fuzz,
 		FuzzTimeout:     *f.fuzzTimeout,

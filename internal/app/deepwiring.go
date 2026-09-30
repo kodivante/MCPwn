@@ -25,6 +25,9 @@ import (
 )
 
 func resolveDeep(cfg Config) Config {
+	if cfg.Autopilot {
+		cfg.Deep = true
+	}
 	if !cfg.Deep {
 		return cfg
 	}

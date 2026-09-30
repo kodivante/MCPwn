@@ -31,6 +31,7 @@ Esa noche se escribió la primera versión de MCPwn. Creció hasta ser una suite
 - **Auditoría de autorización OAuth** (`-auth-audit`): sigue los challenges 401 hasta los metadatos OAuth, verifica el anuncio de PKCE S256, detecta metadatos RFC 9728 faltantes y aceptación de tokens bearer fabricados.
 - **Discovery de MCPs shadow** (`-discover`): inventaría cada servidor MCP configurado en la máquina (Claude Desktop, Claude Code, Cursor, VS Code, `.mcp.json`) con clasificación local-stdio/local-http/remoto.
 - **Campañas autopilot** (`-autopilot`): un plan determinista de hipótesis — qué esperamos probar y con cuál probe — construido antes de testear y evaluado después, imprimiendo un resumen de confirmadas versus no probadas.
+- **Probing adaptativo** (`-mutate`, `-sequence`): payloads benignos de sustitución prueban si el input de las tools llega a un intérprete de comandos (consciente de ejecución, inmune a falsos positivos de reflejo), mientras que las sondas de secuencia exponen violaciones de idempotencia y sangrado de estado entre tools.
 - **Policy gates** (`-policy`): archivos JSON que aplican gates personalizadas (`failOn` severidades, `maxFindings`, `ignoreRules`) sobre la lógica de severidad por defecto, para pipelines de CI con requisitos más estrictos.
 - **LLM advisor opcional** (`-advisor-endpoint`): envía contexto estrictamente anonimizado (hashes, capacidades, IDs de reglas) a un endpoint externo y convierte las hipótesis recibidas en leads `AdvisorHint01` claramente marcados — severidad LOW, confidence 40, jamás confirmados. Asistido por IA, nunca autoridad de IA.
 - **Suite de testing dinámico profundo** (`-deep`): dieciocho motores — prober de traversal, canary SSRF, sonda de schema pollution, desync de lifecycle, fuzzer de protocolo, prober de race conditions, sonda de agotamiento, detector de rug-pull, escáner de token leaks, sonda de sampling, detector de side-channels, prober de resource traversal, auditor de prompt templates, motor de amenazas HTTP, sonda de elicitation y sonda de roots del cliente.
@@ -166,6 +167,8 @@ mcpwn -targets=targets.json -deep -outdir=reports -file=inventory.json
 | `-autopilot` | `false` | Corre la campaña completa guiada por hipótesis e imprime su resumen |
 | `-policy` | — | Archivo de policy con gates de seguridad (`failOn`, `maxFindings`, `ignoreRules`) |
 | `-advisor-endpoint` | — | Endpoint opcional de advisor LLM que recibe contexto anonimizado para hipótesis |
+| `-mutate` | `false` | Prueba alcanzabilidad de intérprete de comandos via payloads benignos de sustitución |
+| `-sequence` | `false` | Sondea violaciones de idempotencia y drift de estado entre tools |
 | `-version` | — | Imprimir la versión y salir |
 
 **Códigos de salida**: `0` sin hallazgos CRITICAL ni HIGH, `1` en cualquier otro caso. Cualquier error operativo también sale con `1` y mensaje en stderr.
@@ -238,6 +241,8 @@ Quince motores, todos seguros por diseño. `-deep` los activa todos; `-quick` de
 | Motor de amenazas HTTP | `-http-probe` | `HttpAuthBypass01`, `HttpSession01`, `HttpOrigin01`, `HttpBatch01` | Ataques sobre Streamable HTTP: sesiones sin autenticar, aceptación de `Mcp-Session-Id` inválido, tolerancia a Origin ajeno (superficie CSRF/DNS-rebinding) y permisividad de batches JSON-RPC |
 | Sonda de elicitation | `-elicitation` | `ElicitationAbuse01` (MEDIUM) | Un servidor que acepta `elicitation/create` puede suplantar diálogos del cliente y phishear credenciales del usuario |
 | Sonda de roots del cliente | `-roots` | `RootsProbe01` (MEDIUM) | Un servidor que acepta `roots/list` puede enumerar el alcance del filesystem del cliente |
+| Prober de mutación | `-mutate` | `MutationDiff01` (HIGH, confirmado) | Payloads benignos de sustitución (`$(echo MARK)`, backticks, `${VAR}`) por parámetro string; se dispara solo cuando el marker regresa sin su wrapper — el servidor evaluó la sintaxis. Los reflejos literales jamás se disparan |
+| Fuzzer de secuencias | `-sequence` | `Idempotency01`, `SequenceDrift01` (MEDIUM, confirmado) | Las llamadas secuenciales idénticas a tools mutadoras de estado no deben divergir, y una llamada benigna a una tool no debe cambiar el estado observado a través de otra (acotado a seis pares) |
 | Analizador de cadenas | siempre activo | `AttackChain01` (HIGH/CRITICAL) | Enlaza hallazgos en rutas de explotación: RCE + fuga de credenciales se convierte en toma total del host; SSRF + token leak en movimiento lateral — cada cadena reporta sus eslabones con evidencia |
 | Analizador multi-hop | siempre activo | `AttackChain02` (HIGH/CRITICAL) | Camina el grafo de capacidades en tres saltos: exec + credenciales + red se convierte en pipeline de exfiltración completo; filesystem + credenciales en cosecha de secretos; red + exec en toma remota |
 | Fuzzer dinámico | `-fuzz` | Confirma `CmdInjection01` | Payloads benignos de echo/sleep/temp-file con deny-list estricta (`rm`, `curl`, `wget`, `nc`, `ssh`, `sudo` son rechazados por hardcode) |

@@ -148,7 +148,7 @@ func collectFindings(ctx context.Context, connectFactory transportFactory, sessi
 		promptEngine := promptinject.NewEngine(session, promptinject.Options{Timeout: cfg.FuzzTimeout})
 		findings = append(findings, promptEngine.ProbeTools(tools)...)
 	}
-	findings = runDeepProbes(ctx, connectFactory, session, tools, findings, cfg)
+	findings = runDeepProbes(ctx, connectFactory, session, tools, findings, cfg, artifacts.profiles)
 	localFindings, localErr := localScanFindings(cfg)
 	if localErr != nil {
 		return nil, artifacts, localErr
@@ -228,7 +228,7 @@ func finalizeFindings(findings []auditor.Finding, artifacts auditArtifacts, cfg 
 	if err := render(findings, artifacts, cfg); err != nil {
 		return 1, err
 	}
-	if len(artifacts.campaign) > 0 {
+	if len(artifacts.campaign) > 0 && cfg.OutputFormat == "terminal" {
 		fmt.Print(campaign.Report(artifacts.campaign))
 	}
 	if cfg.PolicyFile != "" {
@@ -237,7 +237,7 @@ func finalizeFindings(findings []auditor.Finding, artifacts auditArtifacts, cfg 
 			return 1, err
 		}
 		violations, fail := policy.Evaluate(target, findings)
-		fmt.Print(policy.Report(violations))
+		printPolicyReport(policy.Report(violations), cfg.OutputFormat)
 		if fail {
 			return 1, nil
 		}
@@ -253,6 +253,14 @@ func finalizeFindings(findings []auditor.Finding, artifacts auditArtifacts, cfg 
 		}
 	}
 	return exitCode(findings), nil
+}
+
+func printPolicyReport(report string, outputFormat string) {
+	if outputFormat == "terminal" {
+		fmt.Print(report)
+		return
+	}
+	fmt.Fprint(os.Stderr, report)
 }
 
 func withRecorder(transport client.Transport, cfg Config) (client.Transport, error) {

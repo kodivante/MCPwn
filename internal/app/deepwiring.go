@@ -5,10 +5,12 @@ import (
 
 	"github.com/kodivante/MCPwn/v3/internal/auditor"
 	"github.com/kodivante/MCPwn/v3/internal/authaudit"
+	"github.com/kodivante/MCPwn/v3/internal/capability"
 	"github.com/kodivante/MCPwn/v3/internal/client"
 	"github.com/kodivante/MCPwn/v3/internal/desync"
 	"github.com/kodivante/MCPwn/v3/internal/exhaustion"
 	"github.com/kodivante/MCPwn/v3/internal/httpthreat"
+	"github.com/kodivante/MCPwn/v3/internal/mutator"
 	"github.com/kodivante/MCPwn/v3/internal/pollution"
 	"github.com/kodivante/MCPwn/v3/internal/promptaudit"
 	"github.com/kodivante/MCPwn/v3/internal/protocolfuzz"
@@ -17,6 +19,7 @@ import (
 	"github.com/kodivante/MCPwn/v3/internal/rugpull"
 	"github.com/kodivante/MCPwn/v3/internal/samplingabuse"
 	"github.com/kodivante/MCPwn/v3/internal/schema"
+	"github.com/kodivante/MCPwn/v3/internal/sequencefuzz"
 	"github.com/kodivante/MCPwn/v3/internal/serverrequest"
 	"github.com/kodivante/MCPwn/v3/internal/sidechannel"
 	"github.com/kodivante/MCPwn/v3/internal/ssrfcanary"
@@ -50,10 +53,12 @@ func resolveDeep(cfg Config) Config {
 	cfg.Elicitation = true
 	cfg.Roots = true
 	cfg.AuthAudit = true
+	cfg.Mutate = true
+	cfg.Sequence = true
 	return cfg
 }
 
-func runDeepProbes(ctx context.Context, connectFactory transportFactory, session *client.Session, tools []schema.Tool, findings []auditor.Finding, cfg Config) []auditor.Finding {
+func runDeepProbes(ctx context.Context, connectFactory transportFactory, session *client.Session, tools []schema.Tool, findings []auditor.Finding, cfg Config, profiles []capability.ToolCapability) []auditor.Finding {
 	source := func() (client.Transport, error) {
 		return connectFactory(ctx, cfg)
 	}
@@ -68,7 +73,7 @@ func runDeepProbes(ctx context.Context, connectFactory transportFactory, session
 		return findings
 	}
 
-	findings = append(findings, loadProbes(session, source, tools, cfg)...)
+	findings = append(findings, loadProbes(session, source, tools, profiles, cfg)...)
 	return findings
 }
 
@@ -131,7 +136,7 @@ func lifecycleProbes(source func() (client.Transport, error), cfg Config) []audi
 	return findings
 }
 
-func loadProbes(session *client.Session, source func() (client.Transport, error), tools []schema.Tool, cfg Config) []auditor.Finding {
+func loadProbes(session *client.Session, source func() (client.Transport, error), tools []schema.Tool, profiles []capability.ToolCapability, cfg Config) []auditor.Finding {
 	var findings []auditor.Finding
 	if cfg.RaceProbe {
 		engine := raceprober.NewEngine(source, tools, raceprober.Options{Timeout: cfg.FuzzTimeout})
@@ -155,6 +160,14 @@ func loadProbes(session *client.Session, source func() (client.Transport, error)
 	}
 	if cfg.PromptAudit {
 		engine := promptaudit.NewEngine(session, promptaudit.Options{})
+		findings = append(findings, engine.Probe()...)
+	}
+	if cfg.Mutate {
+		engine := mutator.NewEngine(session, tools, mutator.Options{Timeout: cfg.FuzzTimeout})
+		findings = append(findings, engine.Probe()...)
+	}
+	if cfg.Sequence {
+		engine := sequencefuzz.NewEngine(session, tools, profiles, sequencefuzz.Options{Timeout: cfg.FuzzTimeout})
 		findings = append(findings, engine.Probe()...)
 	}
 	return findings

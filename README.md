@@ -31,6 +31,7 @@ That night, the first version of MCPwn was written. It grew into a full suite: t
 - **OAuth authorization auditing** (`-auth-audit`): follows 401 challenges into OAuth metadata, verifies S256 PKCE advertisement, detects missing RFC 9728 metadata and bearer token passthrough acceptance.
 - **Shadow MCP discovery** (`-discover`): inventories every MCP server configured on the machine (Claude Desktop, Claude Code, Cursor, VS Code, `.mcp.json`) with local-stdio/local-http/remote classification.
 - **Autopilot campaigns** (`-autopilot`): a deterministic plan of hypotheses — what we hope to prove, through which probe — built before testing and evaluated after, printing a campaign summary of confirmed versus unproven leads.
+- **Adaptive probing** (`-mutate`, `-sequence`): benign substitution payloads prove whether tool input reaches a command interpreter (execution-aware, immune to reflection false positives), while sequence probes expose idempotency violations and cross-tool state bleed.
 - **Policy gates** (`-policy`): JSON files enforce custom gates (`failOn` severities, `maxFindings`, `ignoreRules`) on top of the default severity logic, for CI pipelines with stricter requirements.
 - **Optional LLM advisor** (`-advisor-endpoint`): sends strictly anonymized context (hashes, capabilities, rule IDs) to an external endpoint and turns returned hypotheses into clearly-marked `AdvisorHint01` leads — LOW severity, confidence 40, never confirmed. AI-assisted, never AI-authoritative.
 - **Deep dynamic testing suite** (`-deep`): eighteen engines — path traversal prober, SSRF canary, schema pollution probe, lifecycle desync, protocol fuzzer, race prober, exhaustion probe, tool rug-pull detector, token leak scanner, sampling abuse probe, side-channel detector, resource traversal prober, prompt template auditor, HTTP threat engine, elicitation abuse probe and client roots probe.
@@ -166,6 +167,8 @@ mcpwn -targets=targets.json -deep -outdir=reports -file=inventory.json
 | `-autopilot` | `false` | Run the full hypothesis-driven campaign and print its summary |
 | `-policy` | — | Policy file with security gates (`failOn`, `maxFindings`, `ignoreRules`) |
 | `-advisor-endpoint` | — | Optional LLM advisor endpoint receiving anonymized context for hypotheses |
+| `-mutate` | `false` | Prove command-interpreter reachability via benign substitution payloads |
+| `-sequence` | `false` | Probe idempotency violations and cross-tool state drift |
 | `-version` | — | Print version and exit |
 
 **Exit codes**: `0` when no CRITICAL or HIGH findings, `1` otherwise. Any operational error also exits `1` with a message on stderr.
@@ -244,6 +247,8 @@ Fifteen engines, every one safe by default. `-deep` enables them all; `-quick` s
 | OAuth auditor | `-auth-audit` | `OAuthMetadata01`, `OAuthPkce01`, `TokenPassthrough01` | Follows 401 challenges into OAuth metadata: missing RFC 9728 metadata, absent S256 PKCE advertisement, and fabricated bearer tokens accepted by the server |
 | Elicitation abuse probe | `-elicitation` | `ElicitationAbuse01` (MEDIUM) | Server accepting `elicitation/create` can phish users through fake client-side dialogs |
 | Client roots probe | `-roots` | `RootsProbe01` (MEDIUM) | Server accepting `roots/list` can enumerate the client filesystem scope |
+| Mutation prober | `-mutate` | `MutationDiff01` (HIGH, confirmed) | Benign substitution payloads (`$(echo MARK)`, backticks, `${VAR}`) per string parameter; fires only when the marker returns without its wrapper — the server evaluated the syntax. Literal reflections never fire |
+| Sequence fuzzer | `-sequence` | `Idempotency01`, `SequenceDrift01` (MEDIUM, confirmed) | Identical sequential calls to state-mutating tools must not diverge, and a benign call to one tool must not change the state observed through another (bounded to six pairs) |
 | Attack-chain analyzer | always on | `AttackChain01` (HIGH/CRITICAL) | Links findings into exploitation paths: RCE + credential leak becomes full host takeover; SSRF + token leak becomes lateral movement — each chain reports its links with evidence |
 | Multi-hop graph analyzer | always on | `AttackChain02` (HIGH/CRITICAL) | Walks the capability graph in three hops: exec + credentials + network becomes a complete exfiltration pipeline, filesystem + credentials becomes secret harvesting, network + exec becomes remote takeover |
 | Dynamic fuzzer | `-fuzz` | Confirms `CmdInjection01` | Benign echo/sleep/temp-file payloads with a strict deny-list (`rm`, `curl`, `wget`, `nc`, `ssh`, `sudo` are hardcoded-rejected) |

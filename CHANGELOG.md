@@ -2,6 +2,16 @@
 
 All notable releases of MCPwn are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [3.20.0] - 2026-09-30
+
+The Adaptive release: execution-aware mutation probing and sequence fuzzing join the deep battery.
+
+### Added
+- Mutation prober (`-mutate`): sends benign substitution payloads (`$(echo MARK)`, backticks, `${VAR}`) per string parameter and fires `MutationDiff01` (HIGH, confirmed) only when the server evaluates the syntax — the marker returns without its wrapper. Literal reflections are ignored, eliminating the false positives of length-based differential fuzzing.
+- Sequence fuzzer (`-sequence`): two stateful probes over the session — `Idempotency01` (identical sequential calls to state-mutating tools returning different response structures) and `SequenceDrift01` (a benign call to one tool changing the state observed through another, bounded to six pairs).
+- Both engines run under `-deep` and `-autopilot`; all three findings are confirmed with evidence and score confidence 95.
+- OWASP mapping: `MutationDiff01` maps to MCP05 (command injection evidence), `Idempotency01` and `SequenceDrift01` map to MCP02 (privilege escalation surface).
+
 ## [3.19.0] - 2026-09-30
 
 The Autopilot release: hypothesis-driven campaigns, policy gates and an optional LLM advisor that proposes leads but never verdicts.

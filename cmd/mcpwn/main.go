@@ -76,6 +76,8 @@ type cliFlags struct {
 	autopilot       *bool
 	policyFile      *string
 	advisorEndpoint *string
+	mutate          *bool
+	sequence        *bool
 	timeout         *time.Duration
 	fuzz            *bool
 	fuzzTimeout     *time.Duration
@@ -188,6 +190,8 @@ func declareFlags() cliFlags {
 		autopilot:       flag.Bool("autopilot", false, "Run the full hypothesis-driven campaign with a summary"),
 		policyFile:      flag.String("policy", "", "Policy file with security gates (failOn, maxFindings, ignoreRules)"),
 		advisorEndpoint: flag.String("advisor-endpoint", "", "Optional LLM advisor endpoint receiving anonymized context for hypotheses"),
+		mutate:          flag.Bool("mutate", false, "Detect input processing via mutation response differentials"),
+		sequence:        flag.Bool("sequence", false, "Probe idempotency and cross-tool state drift"),
 		timeout:         flag.Duration("timeout", 30*time.Second, "Total audit timeout"),
 		fuzz:            flag.Bool("fuzz", false, "Run dynamic fuzzing to confirm findings"),
 		fuzzTimeout:     flag.Duration("fuzz-timeout", 10*time.Second, "Per-probe fuzz timeout"),
@@ -243,6 +247,8 @@ func (f cliFlags) buildConfig() app.Config {
 		Autopilot:       *f.autopilot,
 		PolicyFile:      *f.policyFile,
 		AdvisorEndpoint: *f.advisorEndpoint,
+		Mutate:          *f.mutate,
+		Sequence:        *f.sequence,
 		Timeout:         *f.timeout,
 		Fuzz:            *f.fuzz,
 		FuzzTimeout:     *f.fuzzTimeout,

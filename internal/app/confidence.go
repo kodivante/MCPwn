@@ -15,9 +15,12 @@ var advisoryRules = map[string]bool{
 }
 
 var behavioralRules = map[string]bool{
-	"SideChannel01": true,
-	"SideChannel02": true,
-	"SideChannel03": true,
+	"SideChannel01":   true,
+	"SideChannel02":   true,
+	"SideChannel03":   true,
+	"MutationDiff01":  true,
+	"Idempotency01":   true,
+	"SequenceDrift01": true,
 }
 
 func applyConfidence(findings []auditor.Finding) {

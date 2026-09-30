@@ -2,6 +2,7 @@ package correlation
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/kodivante/MCPwn/v3/internal/auditor"
 	"github.com/kodivante/MCPwn/v3/internal/taint"
@@ -55,16 +56,44 @@ func Correlate(findings []auditor.Finding, paths []taint.Path) []auditor.Finding
 
 func correlatedFinding(path taint.Path, dynamic auditor.Finding) auditor.Finding {
 	return auditor.Finding{
-		Severity:    auditor.SeverityCritical,
-		RuleID:      ruleID,
-		TargetTool:  path.Tool,
-		ParamPath:   "correlation:" + path.SinkClass,
-		Description: fmt.Sprintf("Static source-to-sink path and runtime behavior both confirm a %s vulnerability on this tool", path.SinkClass),
-		Remediation: "Fix the tainted path reported statically and the exploitability confirmed at runtime; treat this as a verified vulnerability, not a hypothesis.",
-		Confirmed:   true,
+		Severity:     auditor.SeverityCritical,
+		RuleID:       ruleID,
+		TargetTool:   path.Tool,
+		ParamPath:    "correlation:" + path.SinkClass,
+		Description:  fmt.Sprintf("Static source-to-sink path and runtime behavior both confirm a %s vulnerability on this tool", path.SinkClass),
+		Remediation:  "Fix the tainted path reported statically and the exploitability confirmed at runtime; treat this as a verified vulnerability, not a hypothesis.",
+		Confirmed:    true,
+		Verification: "correlated",
 		Evidence: fmt.Sprintf("static path: %s | runtime: %s confirmed (%s)",
 			path.Evidence(), dynamic.RuleID, truncate(dynamic.Evidence, 160)),
 	}
+}
+
+func EnrichSupplyChain(findings []auditor.Finding, paths []taint.Path) []auditor.Finding {
+	enriched := make([]auditor.Finding, len(findings))
+	copy(enriched, findings)
+	for index := range enriched {
+		if enriched[index].RuleID != "DependencyVuln01" {
+			continue
+		}
+		dependency := enriched[index].TargetTool
+		for _, path := range paths {
+			if touchesPackage(path, dependency) {
+				enriched[index].Evidence += fmt.Sprintf(" | exercised by taint path: %s", truncate(path.Evidence(), 120))
+				break
+			}
+		}
+	}
+	return enriched
+}
+
+func touchesPackage(path taint.Path, dependency string) bool {
+	for _, hop := range path.Hops {
+		if strings.HasPrefix(hop.Function, dependency+".") {
+			return true
+		}
+	}
+	return false
 }
 
 func truncate(text string, max int) string {

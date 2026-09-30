@@ -114,14 +114,15 @@ func vulnFinding(dependency Dependency, vulns []osvVuln) auditor.Finding {
 		ids = ids[:maxVulnsPerDep]
 	}
 	return auditor.Finding{
-		Severity:    auditor.SeverityHigh,
-		RuleID:      vulnRuleID,
-		TargetTool:  dependency.Name,
-		ParamPath:   "dependency",
-		Description: fmt.Sprintf("Dependency %s@%s has %d known vulnerabilities", dependency.Name, dependency.Version, len(vulns)),
-		Remediation: "Upgrade the dependency to a patched version; if a fix is unavailable, isolate the server and add compensating controls.",
-		Confirmed:   true,
-		Evidence:    fmt.Sprintf("osv.dev reports %s for %s@%s (%s ecosystem)", strings.Join(ids, ", "), dependency.Name, dependency.Version, dependency.Ecosystem),
+		Severity:     auditor.SeverityHigh,
+		RuleID:       vulnRuleID,
+		TargetTool:   dependency.Name,
+		ParamPath:    "dependency",
+		Description:  fmt.Sprintf("Dependency %s@%s has %d known vulnerabilities", dependency.Name, dependency.Version, len(vulns)),
+		Remediation:  "Upgrade the dependency to a patched version; if a fix is unavailable, isolate the server and add compensating controls.",
+		Confirmed:    true,
+		Evidence:     fmt.Sprintf("osv.dev reports %s for %s@%s (%s ecosystem)", strings.Join(ids, ", "), dependency.Name, dependency.Version, dependency.Ecosystem),
+		Verification: "static",
 	}
 }
 
@@ -133,13 +134,14 @@ func typosquatFindings(dependencies []Dependency) []auditor.Finding {
 			continue
 		}
 		findings = append(findings, auditor.Finding{
-			Severity:    auditor.SeverityMedium,
-			RuleID:      typosquatRuleID,
-			TargetTool:  dependency.Name,
-			ParamPath:   "dependency",
-			Description: fmt.Sprintf("Dependency %s is one edit away from the popular package %s", dependency.Name, closest),
-			Remediation: "Verify the package name against the official registry before installing; typosquats are a common supply-chain attack vector.",
-			Evidence:    fmt.Sprintf("edit distance 1 from %q in the %s ecosystem", closest, dependency.Ecosystem),
+			Severity:     auditor.SeverityMedium,
+			RuleID:       typosquatRuleID,
+			TargetTool:   dependency.Name,
+			ParamPath:    "dependency",
+			Description:  fmt.Sprintf("Dependency %s is one edit away from the popular package %s", dependency.Name, closest),
+			Remediation:  "Verify the package name against the official registry before installing; typosquats are a common supply-chain attack vector.",
+			Evidence:     fmt.Sprintf("edit distance 1 from %q in the %s ecosystem", closest, dependency.Ecosystem),
+			Verification: "static",
 		})
 	}
 	return findings
@@ -152,13 +154,14 @@ func unpinnedFindings(dependencies []Dependency) []auditor.Finding {
 			continue
 		}
 		findings = append(findings, auditor.Finding{
-			Severity:    auditor.SeverityLow,
-			RuleID:      unpinnedRuleID,
-			TargetTool:  dependency.Name,
-			ParamPath:   "dependency",
-			Description: fmt.Sprintf("Dependency %s is not pinned to an exact version", dependency.Name),
-			Remediation: "Pin every dependency to an exact version (==) and validate hashes so builds are reproducible.",
-			Evidence:    fmt.Sprintf("requirements entry %q lacks an == version constraint", dependency.Name),
+			Severity:     auditor.SeverityLow,
+			RuleID:       unpinnedRuleID,
+			TargetTool:   dependency.Name,
+			ParamPath:    "dependency",
+			Description:  fmt.Sprintf("Dependency %s is not pinned to an exact version", dependency.Name),
+			Remediation:  "Pin every dependency to an exact version (==) and validate hashes so builds are reproducible.",
+			Evidence:     fmt.Sprintf("requirements entry %q lacks an == version constraint", dependency.Name),
+			Verification: "static",
 		})
 	}
 	return findings

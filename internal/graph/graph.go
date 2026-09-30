@@ -163,6 +163,17 @@ func AttachTaintPaths(target Graph, paths []taint.Path) Graph {
 		ensureNode(Node{ID: toolID, Kind: KindTool, Label: path.Tool})
 		sinkID := "sink:" + path.Tool + ":" + path.SinkClass
 		ensureNode(Node{ID: sinkID, Kind: KindSink, Label: path.SinkClass})
+		capabilityID := capabilityNodeID(path.SinkClass)
+		ensureNode(Node{ID: capabilityID, Kind: KindCapability, Label: path.SinkClass})
+		if !seen[sinkID+"|"+capabilityID] {
+			seen[sinkID+"|"+capabilityID] = true
+			target.Edges = append(target.Edges, Edge{
+				From:     sinkID,
+				To:       capabilityID,
+				Kind:     EdgeReaches,
+				Evidence: "sink realizes the " + path.SinkClass + " capability",
+			})
+		}
 		for _, param := range path.Params {
 			paramID := "param:" + path.Tool + ":" + param
 			ensureNode(Node{ID: paramID, Kind: KindParameter, Label: param})

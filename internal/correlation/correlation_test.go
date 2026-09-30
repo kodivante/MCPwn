@@ -90,3 +90,25 @@ func TestCorrelateNoPaths(t *testing.T) {
 		t.Errorf("expected no correlation without paths, got %+v", correlations)
 	}
 }
+
+func TestEnrichSupplyChainLinksTaintPaths(t *testing.T) {
+	findings := []auditor.Finding{
+		{RuleID: "DependencyVuln01", TargetTool: "requests", Evidence: "osv.dev reports GHSA-x for requests@2.0.0"},
+		{RuleID: "DependencyVuln01", TargetTool: "numpy", Evidence: "osv.dev reports GHSA-y for numpy@1.0"},
+	}
+	paths := []taint.Path{{
+		Tool:      "fetchConfig",
+		SinkClass: "network",
+		Hops:      []taint.Hop{{Function: "requests.get", File: "server.py", Line: 12}},
+	}}
+	enriched := EnrichSupplyChain(findings, paths)
+	if !strings.Contains(enriched[0].Evidence, "exercised by taint path") {
+		t.Errorf("expected requests finding enriched with taint path, got: %s", enriched[0].Evidence)
+	}
+	if strings.Contains(enriched[1].Evidence, "exercised by taint path") {
+		t.Errorf("numpy must stay unenriched, got: %s", enriched[1].Evidence)
+	}
+	if strings.Contains(findings[0].Evidence, "exercised") {
+		t.Error("enrichment must not mutate the input slice")
+	}
+}

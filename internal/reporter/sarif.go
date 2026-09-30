@@ -106,8 +106,15 @@ func mapFindingsToSARIF(findings []auditor.Finding) ([]SARIFRule, []SARIFResult)
 			Message: SARIFDescription{Text: message},
 			Level:   level,
 		}
+		var tags []string
 		if owaspID := owasp.MapRule(f.RuleID); owaspID != "" {
-			result.Properties = SARIFProperties{Tags: []string{owaspID}}
+			tags = append(tags, owaspID)
+		}
+		if f.Verification != "" {
+			tags = append(tags, "verification:"+f.Verification)
+		}
+		if len(tags) > 0 {
+			result.Properties = SARIFProperties{Tags: tags}
 		}
 		results = append(results, result)
 	}

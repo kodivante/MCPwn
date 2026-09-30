@@ -36,13 +36,6 @@ func (p Path) Evidence() string {
 	return strings.Join(labels, " -> ")
 }
 
-type analyzer struct {
-	functions    map[string]*functionUnit
-	visited      map[string]bool
-	returnsTaint map[string]bool
-	paths        []Path
-}
-
 func Analyze(root string) ([]auditor.Finding, []Path, error) {
 	files, err := collectSourceFiles(root)
 	if err != nil {
@@ -52,11 +45,20 @@ func Analyze(root string) ([]auditor.Finding, []Path, error) {
 		functions:    make(map[string]*functionUnit),
 		visited:      make(map[string]bool),
 		returnsTaint: make(map[string]bool),
+		returnsType:  make(map[string]string),
+		classes:      make(map[string]bool),
+		classTaint:   make(map[string]map[string]bool),
 	}
 	for _, file := range files {
-		for _, unit := range parseFile(file) {
+		units, context := parseFile(file)
+		for _, unit := range units {
 			if _, exists := engine.functions[unit.name]; !exists {
 				engine.functions[unit.name] = unit
+			}
+		}
+		if context != nil {
+			for className := range context.classes {
+				engine.classes[className] = true
 			}
 		}
 	}
@@ -71,79 +73,6 @@ func Analyze(root string) ([]auditor.Finding, []Path, error) {
 	return findingsFromPaths(engine.paths), engine.paths, nil
 }
 
-func (a *analyzer) process(name string, tainted map[string]bool, hops []Hop, entryTool, entryLabel string, depth int) {
-	key := name + "|" + signature(tainted)
-	if a.visited[key] || depth > maxCallDepth {
-		return
-	}
-	a.visited[key] = true
-	unit := a.functions[name]
-	if unit == nil {
-		return
-	}
-	local := copyTaint(tainted)
-	returns := false
-	for _, line := range unit.body {
-		if lhs, rhs, ok := matchAssignment(line.text); ok {
-			rhsTainted := containsTainted(rhs, local)
-			if a.processCalls(rhs, line.num, local, hops, entryTool, entryLabel, depth) {
-				rhsTainted = true
-			}
-			if rhsTainted {
-				local[lhs] = true
-			}
-			continue
-		}
-		if expr, ok := matchReturn(line.text); ok {
-			called := a.processCalls(expr, line.num, local, hops, entryTool, entryLabel, depth)
-			if containsTainted(expr, local) || called {
-				returns = true
-			}
-			continue
-		}
-		a.processCalls(line.text, line.num, local, hops, entryTool, entryLabel, depth)
-	}
-	a.returnsTaint[key] = returns
-}
-
-func (a *analyzer) processCalls(text string, num int, local map[string]bool, hops []Hop, entryTool, entryLabel string, depth int) bool {
-	returned := false
-	for _, call := range extractCalls(text, num) {
-		if class, isSink := sinkClass(call.callee); isSink && argsTainted(call.args, local) {
-			a.recordPath(entryTool, entryLabel, class, hops, call)
-		}
-		callee := a.functions[call.callee]
-		if callee == nil || !argsTainted(call.args, local) {
-			continue
-		}
-		childTaint := mapParams(callee.params, call.args, local)
-		calleeKey := call.callee + "|" + signature(childTaint)
-		childHops := append(copyHops(hops), Hop{Function: call.callee, File: callee.file, Line: num})
-		a.process(call.callee, childTaint, childHops, entryTool, entryLabel, depth+1)
-		if a.returnsTaint[calleeKey] {
-			returned = true
-		}
-	}
-	return returned
-}
-
-func (a *analyzer) recordPath(entryTool, entryLabel, class string, hops []Hop, call callInfo) {
-	if len(a.paths) >= maxPaths {
-		return
-	}
-	sinkHop := Hop{Function: call.callee, File: hops[len(hops)-1].File, Line: call.line}
-	recorded := Path{
-		Tool:      entryTool,
-		Entry:     entryLabel,
-		SinkClass: class,
-		Hops:      append(copyHops(hops), sinkHop),
-	}
-	if entry := a.functions[entryTool]; entry != nil {
-		recorded.Params = entry.params
-	}
-	a.paths = append(a.paths, recorded)
-}
-
 func findingsFromPaths(paths []Path) []auditor.Finding {
 	seen := make(map[string]bool)
 	var findings []auditor.Finding
@@ -154,14 +83,15 @@ func findingsFromPaths(paths []Path) []auditor.Finding {
 		}
 		seen[key] = true
 		findings = append(findings, auditor.Finding{
-			Severity:    auditor.SeverityHigh,
-			RuleID:      ruleID,
-			TargetTool:  path.Tool,
-			ParamPath:   "taint:" + path.SinkClass,
-			Description: fmt.Sprintf("MCP tool input reaches a %s sink through %d interprocedural hops", path.SinkClass, len(path.Hops)-1),
-			Remediation: remediationFor(path.SinkClass),
-			Confirmed:   false,
-			Evidence:    path.Evidence(),
+			Severity:     auditor.SeverityHigh,
+			RuleID:       ruleID,
+			TargetTool:   path.Tool,
+			ParamPath:    "taint:" + path.SinkClass,
+			Description:  fmt.Sprintf("MCP tool input reaches a %s sink through %d interprocedural hops", path.SinkClass, len(path.Hops)-1),
+			Remediation:  remediationFor(path.SinkClass),
+			Confirmed:    false,
+			Evidence:     path.Evidence(),
+			Verification: "static",
 		})
 	}
 	return findings
@@ -210,8 +140,12 @@ func argsTainted(args string, local map[string]bool) bool {
 
 func containsTainted(text string, local map[string]bool) bool {
 	for _, name := range identifiers(text) {
-		if local[name] {
-			return true
+		segments := strings.Split(name, ".")
+		for length := len(segments); length >= 1; length-- {
+			candidate := strings.Join(segments[:length], ".")
+			if local[candidate] {
+				return true
+			}
 		}
 	}
 	return false

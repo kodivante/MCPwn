@@ -163,6 +163,8 @@ func collectFindings(ctx context.Context, connectFactory transportFactory, sessi
 	}
 	findings = runDeepProbes(ctx, connectFactory, session, tools, findings, cfg, artifacts.profiles)
 	findings = append(findings, correlation.Correlate(findings, artifacts.taintPaths)...)
+	findings = correlation.EnrichSupplyChain(findings, artifacts.taintPaths)
+	stampDynamicVerification(findings)
 	advisorFindings, advisorErr := runAdvisor(cfg, findings, artifacts.profiles)
 	if advisorErr != nil {
 		return nil, artifacts, advisorErr
@@ -180,6 +182,14 @@ func collectFindings(ctx context.Context, connectFactory transportFactory, sessi
 		artifacts.campaign = campaign.Evaluate(hypotheses, findings)
 	}
 	return findings, artifacts, nil
+}
+
+func stampDynamicVerification(findings []auditor.Finding) {
+	for i := range findings {
+		if findings[i].Confirmed && findings[i].Verification == "" {
+			findings[i].Verification = "dynamic"
+		}
+	}
 }
 
 func runTaintAnalysis(cfg Config, artifacts *auditArtifacts) ([]auditor.Finding, error) {

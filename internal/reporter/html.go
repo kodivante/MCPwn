@@ -15,16 +15,17 @@ import (
 var severityOrder = []auditor.Severity{auditor.SeverityCritical, auditor.SeverityHigh, auditor.SeverityMedium, auditor.SeverityLow}
 
 type htmlFinding struct {
-	SevClass    string
-	RuleID      string
-	TargetTool  string
-	ParamPath   string
-	Description string
-	Remediation string
-	StatusLabel string
-	StatusClass string
-	Evidence    string
-	OwaspMcp    string
+	SevClass     string
+	RuleID       string
+	TargetTool   string
+	ParamPath    string
+	Description  string
+	Remediation  string
+	StatusLabel  string
+	StatusClass  string
+	Evidence     string
+	OwaspMcp     string
+	Verification string
 }
 
 type owaspRow struct {
@@ -119,16 +120,17 @@ func newHTMLFinding(f auditor.Finding) htmlFinding {
 		statusClass = "confirmed"
 	}
 	return htmlFinding{
-		SevClass:    severityClass(f.Severity),
-		RuleID:      f.RuleID,
-		TargetTool:  f.TargetTool,
-		ParamPath:   f.ParamPath,
-		Description: f.Description,
-		Remediation: f.Remediation,
-		StatusLabel: statusLabel,
-		StatusClass: statusClass,
-		Evidence:    f.Evidence,
-		OwaspMcp:    owasp.MapRule(f.RuleID),
+		SevClass:     severityClass(f.Severity),
+		RuleID:       f.RuleID,
+		TargetTool:   f.TargetTool,
+		ParamPath:    f.ParamPath,
+		Description:  f.Description,
+		Remediation:  f.Remediation,
+		StatusLabel:  statusLabel,
+		StatusClass:  statusClass,
+		Evidence:     f.Evidence,
+		OwaspMcp:     owasp.MapRule(f.RuleID),
+		Verification: f.Verification,
 	}
 }
 

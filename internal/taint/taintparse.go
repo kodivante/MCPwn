@@ -17,6 +17,7 @@ type functionUnit struct {
 	isTool   bool
 	defLine  int
 	params   []string
+	imports  map[string]string
 	body     []bodyLine
 }
 
@@ -26,9 +27,10 @@ type bodyLine struct {
 }
 
 type callInfo struct {
-	callee string
-	args   string
-	line   int
+	callee   string
+	args     string
+	receiver string
+	line     int
 }
 
 var (
@@ -36,7 +38,7 @@ var (
 	jsFuncPattern = regexp.MustCompile(`^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)`)
 	jsArrowNamed  = regexp.MustCompile(`^\s*(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\(([^)]*)\)\s*=>`)
 	jsToolPattern = regexp.MustCompile(`\.tool\(\s*["']([^"']+)["']\s*,\s*([A-Za-z_$][\w$]*)`)
-	assignPattern = regexp.MustCompile(`^\s*([A-Za-z_$][\w$]*)\s*=\s*(.+)$`)
+	assignPattern = regexp.MustCompile(`^\s*([A-Za-z_$][\w$.]*)\s*=\s*(.+)$`)
 	returnPattern = regexp.MustCompile(`^\s*return\s+(.+)$`)
 )
 
@@ -73,41 +75,59 @@ func isSkippedDir(name string) bool {
 	}
 }
 
-func parseFile(path string) []*functionUnit {
+func parseFile(path string) ([]*functionUnit, *fileContext) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	if len(data) > 1024*1024 {
-		return nil
+		return nil, nil
 	}
 	rawLines := strings.Split(string(data), "\n")
-	if strings.HasSuffix(strings.ToLower(path), ".py") {
-		return parsePython(path, rawLines)
+	isPython := strings.HasSuffix(strings.ToLower(path), ".py")
+	context := parseFileContext(rawLines, isPython)
+	if isPython {
+		return parsePython(path, rawLines, context), context
 	}
-	return parseJavaScript(path, rawLines)
+	return parseJavaScript(path, rawLines, context), context
 }
 
-func parsePython(path string, rawLines []string) []*functionUnit {
+func parsePython(path string, rawLines []string, context *fileContext) []*functionUnit {
 	var units []*functionUnit
 	pendingTool := false
+	className := ""
+	classIndent := -1
 	for index, raw := range rawLines {
 		lineNumber := index + 1
 		if strings.HasPrefix(strings.TrimSpace(raw), "@") {
 			pendingTool = pendingTool || strings.Contains(raw, ".tool")
 			continue
 		}
+		if match := pyClassPattern.FindStringSubmatch(raw); match != nil {
+			className = match[1]
+			classIndent = indentOf(raw)
+			pendingTool = false
+			continue
+		}
 		match := defPattern.FindStringSubmatch(raw)
 		if match == nil {
 			continue
 		}
+		name := match[1]
+		if className != "" && indentOf(raw) > classIndent {
+			name = className + "." + match[1]
+		} else {
+			className = ""
+			classIndent = -1
+		}
 		unit := &functionUnit{
-			name:     match[1],
+			name:     name,
 			file:     path,
 			isTool:   pendingTool,
-			toolName: match[1],
+			toolName: name,
 			defLine:  lineNumber,
 			params:   splitParams(match[2]),
+			imports:  context.imports,
 		}
 		unit.body = pythonBody(rawLines, index, indentOf(raw))
 		units = append(units, unit)
@@ -131,7 +151,7 @@ func pythonBody(rawLines []string, defIndex, defIndent int) []bodyLine {
 	return body
 }
 
-func parseJavaScript(path string, rawLines []string) []*functionUnit {
+func parseJavaScript(path string, rawLines []string, context *fileContext) []*functionUnit {
 	var units []*functionUnit
 	handlers := map[string]string{}
 	for _, raw := range rawLines {
@@ -152,6 +172,7 @@ func parseJavaScript(path string, rawLines []string) []*functionUnit {
 			file:     path,
 			defLine:  index + 1,
 			params:   splitParams(match[2]),
+			imports:  context.imports,
 			toolName: handlers[match[1]],
 			isTool:   handlers[match[1]] != "",
 		}
@@ -237,6 +258,7 @@ func matchReturn(line string) (string, bool) {
 func extractCalls(line string, lineNumber int) []callInfo {
 	cleaned := stripStrings(line)
 	var calls []callInfo
+	previousEnd := 0
 	for index := 0; index < len(cleaned); index++ {
 		open := strings.Index(cleaned[index:], "(")
 		if open < 0 {
@@ -254,8 +276,14 @@ func extractCalls(line string, lineNumber int) []callInfo {
 			continue
 		}
 		if callee != "" && callee != "if" && callee != "for" && callee != "while" {
-			calls = append(calls, callInfo{callee: callee, args: cleaned[start+1 : end], line: lineNumber})
+			calls = append(calls, callInfo{
+				callee:   callee,
+				args:     cleaned[start+1 : end],
+				receiver: strings.Trim(cleaned[previousEnd:nameStart+1], " ."),
+				line:     lineNumber,
+			})
 		}
+		previousEnd = end
 		index = end
 	}
 	return calls
@@ -303,7 +331,7 @@ func stripStrings(line string) string {
 }
 
 func identifiers(text string) []string {
-	pattern := regexp.MustCompile(`[A-Za-z_$][\w$]*`)
+	pattern := regexp.MustCompile(`[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*`)
 	var found []string
 	for _, name := range pattern.FindAllString(text, -1) {
 		if isKeyword(name) {

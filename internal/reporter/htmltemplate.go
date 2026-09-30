@@ -102,6 +102,7 @@ footer .author span { color: #ff8000; }
 <div class="row"><span class="k">Rule</span><span class="rule">{{.RuleID}}</span></div>
 <div class="row"><span class="k">Path</span><span class="path">{{.ParamPath}}</span></div>
 {{if .OwaspMcp}}<div class="row"><span class="k">OWASP</span><span class="path">{{.OwaspMcp}}</span></div>{{end}}
+{{if .Verification}}<div class="row"><span class="k">Proof</span><span class="path">{{.Verification}}</span></div>{{end}}
 <p class="desc">{{.Description}}</p>
 {{if .Remediation}}
 <p class="remediation"><span class="k">Fix:</span> {{.Remediation}}</p>

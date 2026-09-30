@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kodivante/MCPwn/v3/internal/taint"
+
 	"github.com/kodivante/MCPwn/v3/internal/auditor"
 	"github.com/kodivante/MCPwn/v3/internal/capability"
 	"github.com/kodivante/MCPwn/v3/internal/schema"
@@ -151,5 +153,42 @@ func TestChainSummaries(t *testing.T) {
 		if summary.Path == "" {
 			t.Error("expected path evidence in summaries")
 		}
+	}
+}
+
+func TestAttachTaintPathsBuildsImpactEdges(t *testing.T) {
+	base := Graph{Nodes: []Node{{ID: "capability:exec", Kind: KindCapability, Label: "exec"}}}
+	paths := []taint.Path{{
+		Tool:      "runReport",
+		Entry:     "runReport(cmd)",
+		Params:    []string{"cmd"},
+		SinkClass: "exec",
+		Hops: []taint.Hop{
+			{Function: "runReport", File: "s.py", Line: 1},
+			{Function: "os.system", File: "s.py", Line: 5},
+		},
+	}}
+	attached := AttachTaintPaths(base, paths)
+	kinds := make(map[string]int)
+	for _, node := range attached.Nodes {
+		kinds[string(node.Kind)]++
+	}
+	if kinds["tool"] != 1 || kinds["parameter"] != 1 || kinds["sink"] != 1 || kinds["capability"] != 1 {
+		t.Errorf("unexpected node kinds: %+v", kinds)
+	}
+	var paramToSink, sinkToCapability bool
+	for _, edge := range attached.Edges {
+		if edge.From == "param:runReport:cmd" && edge.To == "sink:runReport:exec" && strings.Contains(edge.Evidence, "runReport") {
+			paramToSink = true
+		}
+		if edge.From == "sink:runReport:exec" && edge.To == "capability:exec" {
+			sinkToCapability = true
+		}
+	}
+	if !paramToSink {
+		t.Error("expected evidence-backed param to sink edge")
+	}
+	if !sinkToCapability {
+		t.Error("expected sink to capability impact edge")
 	}
 }

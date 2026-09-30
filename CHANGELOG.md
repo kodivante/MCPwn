@@ -2,6 +2,21 @@
 
 All notable releases of MCPwn are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [3.22.0] - 2026-09-30
+
+The Resolution release: the taint engine grows import, class, method, property and sanitizer resolution, and every finding carries its verification tier.
+
+### Added
+- Import resolution in the taint engine: `import subprocess as sp`, `from os import system as raw` and JS `require`/`import` now resolve calls to their canonical sinks — `sp.check_output(t)` reports `subprocess.check_output`, closing a v3.21 gap where from-imported sink names went unrecognized.
+- Class and method resolution: class bodies produce `Class.method` functions, `shell = Shell()` types the variable, and `shell.execute(cmd)` resolves and propagates interprocedurally. Constructor chains (`Runner().prepare(cmd).fire()`) resolve through receiver tracking and self-return typing.
+- Function aliasing: `runner = os.system` followed by `runner(cmd)` resolves to the aliased sink.
+- Property and object-state tracking: assignments to `self.attr` taint the attribute key and methods inherit the tainted attribute state of their class, so builder patterns that stash input on `self` and fire it from another method are traced end to end.
+- Sanitizer modeling: pure cleansing calls (`shlex.quote`, `re.escape`, `int`, `float`, `bool`, `os.path.basename`, `html.escape`, `urllib.parse.quote`) stop taint propagation — sanitized flows stay silent, proven by the benign corpus.
+- Allowlist guards: `if cmd not in ALLOWED: return` marks the parameter validated for the rest of the function, eliminating the classic false positive on guarded tools.
+- Verification tiers: every finding carries `Verification` — `static` (source and supply-chain evidence), `dynamic` (runtime-confirmed probes) or `correlated` (static path plus runtime confirmation) — surfaced in JSON, SARIF tags and the HTML report.
+- Supply-chain to taint bridging: `DependencyVuln01` findings report when a traced taint path exercises the vulnerable package, connecting the CVE to reachable code.
+- Attack graph impact edges: taint sinks link to their capability nodes, completing `tool -> parameter -> sink -> capability` paths in the exported graph.
+
 ## [3.21.0] - 2026-09-30
 
 The Deep Analysis release: interprocedural taint tracking, source-to-runtime correlation and an evidence-backed attack graph. The static layer stops finding sinks and starts tracing how tool input reaches them.

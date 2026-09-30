@@ -14,15 +14,16 @@ const (
 )
 
 type Finding struct {
-	Severity    Severity `json:"Severity"`
-	RuleID      string   `json:"RuleID"`
-	TargetTool  string   `json:"TargetTool"`
-	ParamPath   string   `json:"ParamPath"`
-	Description string   `json:"Description"`
-	Remediation string   `json:"Remediation"`
-	Confirmed   bool     `json:"Confirmed,omitempty"`
-	Evidence    string   `json:"Evidence,omitempty"`
-	Confidence  int      `json:"Confidence,omitempty"`
+	Severity     Severity `json:"Severity"`
+	RuleID       string   `json:"RuleID"`
+	TargetTool   string   `json:"TargetTool"`
+	ParamPath    string   `json:"ParamPath"`
+	Description  string   `json:"Description"`
+	Remediation  string   `json:"Remediation"`
+	Confirmed    bool     `json:"Confirmed,omitempty"`
+	Evidence     string   `json:"Evidence,omitempty"`
+	Confidence   int      `json:"Confidence,omitempty"`
+	Verification string   `json:"Verification,omitempty"`
 }
 
 func (f *Finding) SetConfidence(confidence int) {

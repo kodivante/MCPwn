@@ -201,3 +201,265 @@ func TestLabBenignCorpusIsClean(t *testing.T) {
 		t.Errorf("benign lab must yield zero taint output, got %+v paths=%+v", findings, paths)
 	}
 }
+
+func TestImportAliasResolution(t *testing.T) {
+	source := `
+class _Registry:
+    def tool(self, fn=None):
+        if fn is None:
+            return lambda handler: handler
+        return fn
+
+mcp = _Registry()
+import subprocess as sp
+from os import system as raw
+
+@mcp.tool()
+def launch(cmd):
+    return sp.check_output(cmd, shell=True)
+
+@mcp.tool()
+def legacy(cmd):
+    return raw(cmd)
+`
+	findings, _, err := Analyze(writeTree(t, map[string]string{"aliases.py": source}))
+	if err != nil {
+		t.Fatalf("analyze failed: %v", err)
+	}
+	if len(findings) != 2 {
+		t.Fatalf("expected both alias-resolved findings, got %+v", findings)
+	}
+	for _, finding := range findings {
+		if !strings.Contains(finding.Evidence, "subprocess.check_output") && !strings.Contains(finding.Evidence, "os.system") {
+			t.Errorf("expected canonical sink names after alias resolution, got: %s", finding.Evidence)
+		}
+	}
+}
+
+func TestFromImportBareCallResolution(t *testing.T) {
+	source := `
+class _Registry:
+    def tool(self, fn=None):
+        if fn is None:
+            return lambda handler: handler
+        return fn
+
+mcp = _Registry()
+from subprocess import check_output
+
+@mcp.tool()
+def run(cmd):
+    return check_output(cmd)
+`
+	findings, _, err := Analyze(writeTree(t, map[string]string{"fromimport.py": source}))
+	if err != nil {
+		t.Fatalf("analyze failed: %v", err)
+	}
+	if len(findings) != 1 || !strings.Contains(findings[0].Evidence, "subprocess.check_output") {
+		t.Fatalf("expected from-import resolution, got %+v", findings)
+	}
+}
+
+func TestClassMethodResolution(t *testing.T) {
+	source := `
+class _Registry:
+    def tool(self, fn=None):
+        if fn is None:
+            return lambda handler: handler
+        return fn
+
+mcp = _Registry()
+
+class Shell:
+    def execute(self, command):
+        return os.system(command)
+
+@mcp.tool()
+def run(cmd):
+    shell = Shell()
+    return shell.execute(cmd)
+`
+	findings, _, err := Analyze(writeTree(t, map[string]string{"classes.py": source}))
+	if err != nil {
+		t.Fatalf("analyze failed: %v", err)
+	}
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 method-resolved finding, got %+v", findings)
+	}
+	if !strings.Contains(findings[0].Evidence, "Shell.execute") {
+		t.Errorf("expected Shell.execute in path, got: %s", findings[0].Evidence)
+	}
+}
+
+func TestFunctionAliasResolution(t *testing.T) {
+	source := `
+class _Registry:
+    def tool(self, fn=None):
+        if fn is None:
+            return lambda handler: handler
+        return fn
+
+mcp = _Registry()
+
+@mcp.tool()
+def run(cmd):
+    runner = os.system
+    return runner(cmd)
+`
+	findings, _, err := Analyze(writeTree(t, map[string]string{"fnalias.py": source}))
+	if err != nil {
+		t.Fatalf("analyze failed: %v", err)
+	}
+	if len(findings) != 1 || !strings.Contains(findings[0].Evidence, "os.system") {
+		t.Fatalf("expected function alias resolution to os.system, got %+v", findings)
+	}
+}
+
+func TestSanitizerCleansesTaint(t *testing.T) {
+	source := `
+import shlex
+
+class _Registry:
+    def tool(self, fn=None):
+        if fn is None:
+            return lambda handler: handler
+        return fn
+
+mcp = _Registry()
+
+@mcp.tool()
+def run(cmd):
+    safe = shlex.quote(cmd)
+    return os.system("echo " + safe)
+`
+	findings, _, err := Analyze(writeTree(t, map[string]string{"sanitized.py": source}))
+	if err != nil {
+		t.Fatalf("analyze failed: %v", err)
+	}
+	if len(findings) != 0 {
+		t.Fatalf("shlex.quote must cleanse the flow, got %+v", findings)
+	}
+}
+
+func TestIntCastCleansesTaint(t *testing.T) {
+	source := `
+class _Registry:
+    def tool(self, fn=None):
+        if fn is None:
+            return lambda handler: handler
+        return fn
+
+mcp = _Registry()
+
+@mcp.tool()
+def lookup(userId):
+    clean = int(userId)
+    return open("/records/" + str(clean)).read()
+`
+	findings, _, err := Analyze(writeTree(t, map[string]string{"casted.py": source}))
+	if err != nil {
+		t.Fatalf("analyze failed: %v", err)
+	}
+	if len(findings) != 0 {
+		t.Fatalf("int cast must cleanse the flow, got %+v", findings)
+	}
+}
+
+func TestAllowlistGuardCleansesTaint(t *testing.T) {
+	source := `
+ALLOWED = {"uptime", "date"}
+
+class _Registry:
+    def tool(self, fn=None):
+        if fn is None:
+            return lambda handler: handler
+        return fn
+
+mcp = _Registry()
+
+@mcp.tool()
+def run(cmd):
+    if cmd not in ALLOWED:
+        return "rejected"
+    return os.system(cmd)
+`
+	findings, _, err := Analyze(writeTree(t, map[string]string{"guarded.py": source}))
+	if err != nil {
+		t.Fatalf("analyze failed: %v", err)
+	}
+	if len(findings) != 0 {
+		t.Fatalf("allowlist guard must validate the flow, got %+v", findings)
+	}
+}
+
+func TestPropertyTrackingAcrossSelf(t *testing.T) {
+	source := `
+class _Registry:
+    def tool(self, fn=None):
+        if fn is None:
+            return lambda handler: handler
+        return fn
+
+mcp = _Registry()
+
+class Runner:
+    def prepare(self, command):
+        self.cmd = command
+        return self
+
+    def fire(self):
+        return os.system(self.cmd)
+
+@mcp.tool()
+def run(cmd):
+    return Runner().prepare(cmd).fire()
+`
+	findings, _, err := Analyze(writeTree(t, map[string]string{"props.py": source}))
+	if err != nil {
+		t.Fatalf("analyze failed: %v", err)
+	}
+	if len(findings) != 1 {
+		t.Fatalf("expected property-tracking finding, got %+v", findings)
+	}
+	if !strings.Contains(findings[0].Evidence, "Runner.fire") {
+		t.Errorf("expected Runner.fire in path, got: %s", findings[0].Evidence)
+	}
+}
+
+func TestFindingsMarkedStaticVerification(t *testing.T) {
+	findings, _, err := Analyze("../../test/fixtures/lab/vulnerable")
+	if err != nil {
+		t.Fatalf("lab analyze failed: %v", err)
+	}
+	for _, finding := range findings {
+		if finding.Verification != "static" {
+			t.Errorf("taint findings must carry static verification, got %q", finding.Verification)
+		}
+	}
+}
+
+func TestJavaScriptRequireResolution(t *testing.T) {
+	source := `
+const cp = require('child_process');
+
+server.tool("run", runHandler);
+
+function runHandler(cmd) {
+    return execViaCp(cmd);
+}
+
+function execViaCp(input) {
+    return cp.execSync(input);
+}
+`
+	findings, _, err := Analyze(writeTree(t, map[string]string{"runner.js": source}))
+	if err != nil {
+		t.Fatalf("analyze failed: %v", err)
+	}
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 JS finding via require resolution, got %+v", findings)
+	}
+	if !strings.Contains(findings[0].Evidence, "execSync") {
+		t.Errorf("expected execSync in path, got: %s", findings[0].Evidence)
+	}
+}

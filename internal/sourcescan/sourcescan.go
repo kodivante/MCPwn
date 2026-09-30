@@ -146,13 +146,14 @@ func scanLine(target scannedFile, lineNumber int, line string) []auditor.Finding
 
 func finding(ruleID string, severity auditor.Severity, path string, lineNumber int, line string) auditor.Finding {
 	return auditor.Finding{
-		Severity:    severity,
-		RuleID:      ruleID,
-		TargetTool:  filepath.Base(path),
-		ParamPath:   "source",
-		Description: fmt.Sprintf("Source pattern %s at %s:%d", ruleID, path, lineNumber),
-		Remediation: remediationFor(ruleID),
-		Evidence:    fmt.Sprintf("%s:%d: %s", path, lineNumber, trimLine(line)),
+		Severity:     severity,
+		RuleID:       ruleID,
+		TargetTool:   filepath.Base(path),
+		ParamPath:    "source",
+		Description:  fmt.Sprintf("Source pattern %s at %s:%d", ruleID, path, lineNumber),
+		Remediation:  remediationFor(ruleID),
+		Evidence:     fmt.Sprintf("%s:%d: %s", path, lineNumber, trimLine(line)),
+		Verification: "static",
 	}
 }
 
